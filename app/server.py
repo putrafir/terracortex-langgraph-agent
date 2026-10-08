@@ -42,7 +42,7 @@ def healthcheck():
     return {
         "status": "healthy",
         "service": "TerraCortex LangGraph Multi-Agent Engine",
-        "llm_engine": "Gemini 3.8 Flash (Online)" if gemini_key else "Deterministic Mining Hydraulic Engine (Offline Fallback)",
+        "llm_engine": "Gemini 3.5 Flash Lite (Ultra-Low Latency)" if gemini_key else "Deterministic Mining Hydraulic Engine (Offline Fallback)",
         "active_graph_nodes": [
             "ingest_telemetry",
             "diagnose_dtc",

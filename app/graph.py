@@ -38,6 +38,9 @@ def build_operations_graph():
 # Global compiled graph instance
 compiled_graph = build_operations_graph()
 
+# Memory cache to avoid re-diagnosing every time user asks a chat question
+_STATE_CACHE: Dict[str, AgentOperationalState] = {}
+
 def run_diagnostics_pipeline(unit_id: str = "EX-04", telemetry: Optional[Dict[str, Any]] = None) -> AgentOperationalState:
     """Convenience executor to run the complete LangGraph pipeline for a target excavator."""
     initial_state: AgentOperationalState = {
@@ -46,10 +49,11 @@ def run_diagnostics_pipeline(unit_id: str = "EX-04", telemetry: Optional[Dict[st
         "execution_trace": []
     }
     result = compiled_graph.invoke(initial_state)
+    _STATE_CACHE[unit_id] = result
     return result
 
 def ask_copilot_agent(unit_id: str, query: str, state: Optional[AgentOperationalState] = None) -> str:
     """Conversational interface allowing superintendents to ask follow-up questions to the agent."""
     if not state or not state.get("work_order_draft"):
-        state = run_diagnostics_pipeline(unit_id)
+        state = _STATE_CACHE.get(unit_id) or run_diagnostics_pipeline(unit_id)
     return chat_reasoning_engine(query, state)

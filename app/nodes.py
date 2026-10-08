@@ -232,12 +232,8 @@ def diagnose_dtc_node(state: AgentOperationalState) -> AgentOperationalState:
     
     if api_key:
         try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-3.8-flash", 
-                google_api_key=api_key,
-                temperature=0.1
-            )
+            from google import genai
+            client = genai.Client(api_key=api_key)
             prompt = f"""
 You are an expert Chief Reliability & Mining Equipment Diagnostic Engineer (OEM Certified).
 Analyze this excavator telemetry packet:
@@ -258,8 +254,8 @@ Respond strictly in valid JSON format with keys:
 "rul_hours": int (remaining operating hours before functional failure),
 "severity": string ("CRITICAL" | "HIGH" | "NOMINAL")
 """
-            resp = llm.invoke(prompt)
-            clean_text = _extract_text(resp)
+            resp = client.models.generate_content(model="gemini-3.5-flash-lite", contents=prompt)
+            clean_text = resp.text.strip() if resp.text else ""
             if "```json" in clean_text:
                 clean_text = clean_text.split("```json", 1)[1].split("```", 1)[0].strip()
             elif "```" in clean_text:
@@ -267,7 +263,7 @@ Respond strictly in valid JSON format with keys:
             elif "{" in clean_text and "}" in clean_text:
                 clean_text = clean_text[clean_text.find("{"):clean_text.rfind("}")+1].strip()
             findings = json.loads(clean_text)
-            findings["source"] = "Gemini 3.8 Flash Diagnostic Agent"
+            findings["source"] = "Gemini 3.5 Flash Lite Diagnostic Agent"
         except Exception:
                 pass
                 
@@ -452,37 +448,40 @@ def chat_reasoning_engine(query: str, state: AgentOperationalState) -> str:
     diag = state.get("diagnosis_findings", {})
     wo = state.get("work_order_draft", {})
     telem = state.get("telemetry", {})
+    cmsi = state.get("cmsi_score", 90.0)
     
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if api_key:
         try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-3.8-flash", 
-                google_api_key=api_key,
-                temperature=0.3
-            )
-            prompt = f"""
-You are the TerraCortex Mining Copilot AI, assisting a Heavy Excavator Fleet Reliability Superintendent.
-Current Machine Context:
-- Unit: {unit_id} ({wo.get('model', 'Mining Shovel')})
-- Diagnosis: {diag.get('diagnosis')}
-- DTC Code: {diag.get('dtc')}
-- CMSI Stress Score: {state.get('cmsi_score')}
-- Remaining Useful Life (RUL): {diag.get('rul_hours')} Hours
-- Spare Part: {wo.get('part_name')} [{wo.get('part_sap_code')}] - {wo.get('part_stock')}
-- Assigned Rig: {wo.get('assigned_rig')}
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            prompt = f"""You are the TerraCortex Mining Copilot AI, assisting a Heavy Excavator Fleet Reliability Superintendent.
+Current Machine Operational Context:
+- Machine Unit: {unit_id} ({wo.get('model', 'Mining Shovel')})
+- Machine Stress Index (CMSI): {cmsi} / 100
+- Technical Diagnosis: {diag.get('diagnosis')}
+- SAE DTC Code: {diag.get('dtc')}
+- Remaining Useful Life (RUL): {diag.get('rul_hours')} Operating Hours
+- SAP MM Spare Part: {wo.get('part_name')} [{wo.get('part_sap_code')}] - {wo.get('part_stock')} at {wo.get('inventory_location')}
+- Assigned Rig: {wo.get('assigned_rig')} (Est Downtime: {wo.get('estimated_downtime')})
 - In-Cab Directive: {wo.get('operator_alert')}
 
-User Question: "{query}"
+User Message: "{query}"
 
-Answer concisely and authoritatively from the perspective of an advanced mining engineer. Focus on safety, machine availability, and practical maintenance actions.
+Guidelines:
+1. If the user greets (e.g. "hai", "halo", "selamat pagi", "hello"), respond warmly in Indonesian as TerraCortex Mining Copilot, stating unit {unit_id} current condition ({cmsi} CMSI Alert), and asking how you can help.
+2. If asking technical, operational, risk, part, or downtime questions, answer authoritatively, concisely, and practically from the perspective of an expert OEM Mining Reliability Engineer.
+3. Support both Indonesian and English seamlessly.
 """
-            resp = llm.invoke(prompt)
-            return _extract_text(resp)
-        except Exception:
-                pass
-                
+            resp = client.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=prompt
+            )
+            if resp.text:
+                return resp.text.strip()
+        except Exception as e:
+            pass
+            
     q_lower = query.lower()
     if "risk" in q_lower or "berbahaya" in q_lower or "bahaya" in q_lower or "failure" in q_lower:
         return (
@@ -500,6 +499,11 @@ Answer concisely and authoritatively from the perspective of an advanced mining 
         return (
             f"Maintenance downtime estimate: {wo.get('estimated_downtime')} allocated to {wo.get('assigned_rig')}. "
             f"Performing this preventative valve kit swap now prevents an unplanned 36-hour catastrophic powerpack rebuild."
+        )
+    elif "hai" in q_lower or "halo" in q_lower or "hello" in q_lower:
+        return (
+            f"Halo! Saya TerraCortex Copilot. Unit {unit_id} saat ini termonitor dalam status CMSI Alert ({cmsi}/100) "
+            f"dengan indikasi pada {diag.get('component', 'sistem hidrolik')}. Ada yang bisa saya bantu terkait risiko, suku cadang, atau jadwal servis?"
         )
     else:
         return (
