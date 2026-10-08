@@ -443,7 +443,7 @@ def synthesize_dispatch_node(state: AgentOperationalState) -> AgentOperationalSt
 
 
 def chat_reasoning_engine(query: str, state: AgentOperationalState) -> str:
-    """Node 5 / Endpoint: Conversational Copilot Q&A for the fleet reliability superintendent."""
+    """Node 5 / Endpoint: Conversational Copilot Q&A with strict language mirroring (EN <-> ID)."""
     unit_id = state.get("unit_id", "EX-04")
     diag = state.get("diagnosis_findings", {})
     wo = state.get("work_order_draft", {})
@@ -455,7 +455,7 @@ def chat_reasoning_engine(query: str, state: AgentOperationalState) -> str:
         try:
             from google import genai
             client = genai.Client(api_key=api_key)
-            prompt = f"""You are the TerraCortex Mining Copilot AI, assisting a Heavy Excavator Fleet Reliability Superintendent.
+            prompt = f"""You are the TerraCortex Mining Copilot AI, an advanced OEM-certified reliability intelligence assistant for Heavy Mining Excavators (Fleet Unit {unit_id}).
 Current Machine Operational Context:
 - Machine Unit: {unit_id} ({wo.get('model', 'Mining Shovel')})
 - Machine Stress Index (CMSI): {cmsi} / 100
@@ -468,11 +468,16 @@ Current Machine Operational Context:
 
 User Message: "{query}"
 
-Guidelines:
-1. If the user greets (e.g. "hai", "halo", "selamat pagi", "hello"), respond warmly in Indonesian as TerraCortex Mining Copilot, stating unit {unit_id} current condition ({cmsi} CMSI Alert), and asking how you can help.
-2. If asking technical, operational, risk, part, or downtime questions, answer authoritatively, concisely, and practically from the perspective of an expert OEM Mining Reliability Engineer.
-3. Support both Indonesian and English seamlessly.
-4. Always format your response with clean Markdown: use clear line breaks between paragraphs, bold key terms (**term**), and put numbered points (1., 2., 3.) or bullet points on separate lines for maximum readability.
+CRITICAL MANDATORY LANGUAGE RULE:
+- You MUST detect and strictly mirror the language used in the User Message:
+  * If the user message is written in ENGLISH (e.g. "Hello", "What is the operational risk?", "How long will the repair take?", "Are parts in stock?"), YOU MUST RESPOND 100% IN ENGLISH.
+  * If the user message is written in INDONESIAN (e.g. "Halo", "Apa risikonya?", "Berapa lama perbaikannya?", "Apakah suku cadang ready?"), YOU MUST RESPOND 100% IN INDONESIAN.
+  * Do NOT answer in Indonesian if the user asked in English. Do NOT answer in English if the user asked in Indonesian.
+
+Formatting Guidelines:
+1. GREETINGS: If user only greets (e.g. "Hello" / "Halo"), greet back warmly in the user's language, state unit {unit_id} active alert ({cmsi} CMSI), and offer help.
+2. TECHNICAL: Answer authoritatively, concisely, and practically from an expert OEM Mining Reliability Engineer perspective.
+3. MARKDOWN: Always format with clean Markdown (bold **terms**, linebreaks between paragraphs, and numbered points 1. 2. 3. on separate lines).
 """
             resp = client.models.generate_content(
                 model="gemini-3.5-flash-lite",
@@ -480,35 +485,76 @@ Guidelines:
             )
             if resp.text:
                 return resp.text.strip()
-        except Exception as e:
+        except Exception:
             pass
             
     q_lower = query.lower()
-    if "risk" in q_lower or "berbahaya" in q_lower or "bahaya" in q_lower or "failure" in q_lower:
-        return (
-            f"Operating risk for {unit_id}: Continued high-load digging against {telem.get('rock_stratum', 'Hard Basalt')} "
-            f"will accelerate micro-pitting in the {diag.get('component', 'hydraulic spool valve')}. "
-            f"Estimated RUL is currently {diag.get('rul_hours', 28)} operating hours. "
-            f"Recommendation: Reduce breakout pressure by 30% and dispatch {wo.get('assigned_rig')} before shift handover."
-        )
-    elif "spare part" in q_lower or "part" in q_lower or "cadang" in q_lower or "stok" in q_lower:
-        return (
-            f"Inventory Check for {unit_id}: Required kit is {wo.get('part_name')} (SAP Code: {wo.get('part_sap_code')}). "
-            f"Current status: {wo.get('part_stock')} located at {wo.get('inventory_location')}. No supply-chain bottleneck detected."
-        )
-    elif "downtime" in q_lower or "jam" in q_lower or "lama" in q_lower or "repair" in q_lower:
-        return (
-            f"Maintenance downtime estimate: {wo.get('estimated_downtime')} allocated to {wo.get('assigned_rig')}. "
-            f"Performing this preventative valve kit swap now prevents an unplanned 36-hour catastrophic powerpack rebuild."
-        )
-    elif "hai" in q_lower or "halo" in q_lower or "hello" in q_lower:
-        return (
-            f"Halo! Saya TerraCortex Copilot. Unit {unit_id} saat ini termonitor dalam status CMSI Alert ({cmsi}/100) "
-            f"dengan indikasi pada {diag.get('component', 'sistem hidrolik')}. Ada yang bisa saya bantu terkait risiko, suku cadang, atau jadwal servis?"
-        )
+    is_id = any(w in q_lower for w in ["halo", "hai", "apa", "berapa", "kenapa", "mengapa", "bagaimana", "apakah", "ada", "bisa", "lama", "rusak", "bahaya", "suku", "cadang", "gudang", "stok", "jam", "mekanik", "risiko"])
+    
+    if is_id:
+        if "risk" in q_lower or "berbahaya" in q_lower or "bahaya" in q_lower or "failure" in q_lower or "risiko" in q_lower:
+            return (
+                f"**Risiko Operasional untuk {unit_id}:** Operasi terus-menerus di bawah beban tinggi pada strata {telem.get('rock_stratum', 'Hard Basalt')} "
+                f"akan mempercepat keausan mikro (*micro-pitting*) pada {diag.get('component', 'hydraulic spool valve')}.\n\n"
+                f"1. Sisa Umur Komponen (RUL): **{diag.get('rul_hours', 28)} jam operasional**.\n"
+                f"2. Rekomendasi: Kurangi gaya *breakout* sebesar 30% dan kirim {wo.get('assigned_rig')} sebelum pergantian shift."
+            )
+        elif "spare part" in q_lower or "part" in q_lower or "cadang" in q_lower or "stok" in q_lower or "gudang" in q_lower:
+            return (
+                f"**Pemeriksaan Stok Suku Cadang SAP ({unit_id}):** Suku cadang yang dibutuhkan adalah **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`).\n\n"
+                f"* Status Gudang: **{wo.get('part_stock')}** di {wo.get('inventory_location')}.\n"
+                f"* Tidak ditemukan kendala logistik (*ready for immediate dispatch*)."
+            )
+        elif "downtime" in q_lower or "jam" in q_lower or "lama" in q_lower or "repair" in q_lower or "perbaikan" in q_lower:
+            return (
+                f"**Estimasi Waktu Perbaikan ({unit_id}):** Estimasi *downtime* adalah **{wo.get('estimated_downtime')}** oleh tim {wo.get('assigned_rig')}.\n\n"
+                f"Melakukan penggantian komponen secara terjadwal sekarang mencegah kerusakan parah pada *powerpack* yang memakan waktu hingga 36 jam."
+            )
+        elif "hai" in q_lower or "halo" in q_lower:
+            return (
+                f"Halo! Saya **TerraCortex Mining Copilot**.\n\n"
+                f"Unit **{unit_id}** saat ini termonitor dalam status **CMSI Alert ({cmsi}/100)** "
+                f"dengan anomali pada {diag.get('component', 'sistem hidrolik')}.\n\n"
+                f"Ada yang bisa saya bantu terkait risiko breakdown, ketersediaan suku cadang SAP, atau jadwal servis lapangan?"
+            )
+        else:
+            return (
+                f"**Ringkasan Diagnostik {unit_id}:** {diag.get('diagnosis')}\n\n"
+                f"* Kode SAE DTC: `{diag.get('dtc')}`\n"
+                f"* Unit Servis: {wo.get('assigned_rig')} disiapkan dengan suku cadang {wo.get('part_name')}.\n"
+                f"* Arahan Kabin: {wo.get('operator_alert')}"
+            )
     else:
-        return (
-            f"Diagnostic Summary for {unit_id}: {diag.get('diagnosis')} "
-            f"SAE DTC Code {diag.get('dtc')} logged. {wo.get('assigned_rig')} is pre-staged with {wo.get('part_name')}. "
-            f"Direct in-cab instruction: {wo.get('operator_alert')}"
-        )
+        # English fallback
+        if "risk" in q_lower or "danger" in q_lower or "fail" in q_lower:
+            return (
+                f"**Operational Risk for {unit_id}:** Continuous high-load digging against {telem.get('rock_stratum', 'Hard Basalt')} "
+                f"will accelerate micro-pitting in the {diag.get('component', 'hydraulic spool valve')}.\n\n"
+                f"1. Estimated RUL: **{diag.get('rul_hours', 28)} operating hours**.\n"
+                f"2. Recommendation: Derate breakout envelope by 30% and dispatch {wo.get('assigned_rig')} prior to shift handover."
+            )
+        elif "part" in q_lower or "stock" in q_lower or "warehouse" in q_lower or "spare" in q_lower:
+            return (
+                f"**SAP MM Parts Verification ({unit_id}):** Required service kit is **{wo.get('part_name')}** (SAP Code: `{wo.get('part_sap_code')}`).\n\n"
+                f"* Stock Status: **{wo.get('part_stock')}** located at {wo.get('inventory_location')}.\n"
+                f"* No supply-chain bottleneck detected (ready for immediate dispatch)."
+            )
+        elif "time" in q_lower or "downtime" in q_lower or "duration" in q_lower or "repair" in q_lower or "long" in q_lower:
+            return (
+                f"**Maintenance Downtime Estimate ({unit_id}):** Planned service downtime is **{wo.get('estimated_downtime')}** allocated to {wo.get('assigned_rig')}.\n\n"
+                f"Executing this preventative component swap now avoids an unscheduled 36-hour catastrophic powerpack rebuild."
+            )
+        elif "hello" in q_lower or "hi" in q_lower or "hey" in q_lower:
+            return (
+                f"Hello! I am the **TerraCortex Mining Copilot**.\n\n"
+                f"Machine unit **{unit_id}** is currently under **CMSI Alert ({cmsi}/100)** "
+                f"due to an anomaly detected in the {diag.get('component', 'hydraulic system')}.\n\n"
+                f"How can I assist you with failure risk, SAP spare parts inventory, or field rig dispatch?"
+            )
+        else:
+            return (
+                f"**Diagnostic Summary for {unit_id}:** {diag.get('diagnosis')}\n\n"
+                f"* SAE DTC Code: `{diag.get('dtc')}`\n"
+                f"* Service Crew: {wo.get('assigned_rig')} pre-staged with {wo.get('part_name')}.\n"
+                f"* In-Cab Directive: {wo.get('operator_alert')}"
+            )
