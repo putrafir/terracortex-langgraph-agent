@@ -472,6 +472,7 @@ Guidelines:
 1. If the user greets (e.g. "hai", "halo", "selamat pagi", "hello"), respond warmly in Indonesian as TerraCortex Mining Copilot, stating unit {unit_id} current condition ({cmsi} CMSI Alert), and asking how you can help.
 2. If asking technical, operational, risk, part, or downtime questions, answer authoritatively, concisely, and practically from the perspective of an expert OEM Mining Reliability Engineer.
 3. Support both Indonesian and English seamlessly.
+4. Always format your response with clean Markdown: use clear line breaks between paragraphs, bold key terms (**term**), and put numbered points (1., 2., 3.) or bullet points on separate lines for maximum readability.
 """
             resp = client.models.generate_content(
                 model="gemini-3.5-flash-lite",
