@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 """
 nodes.py — LangGraph Execution Nodes for TerraCortex Operations Intelligence
 Implements:
@@ -26,6 +28,23 @@ SUPABASE_KEY = os.environ.get(
 )
 
 # Reference fleet telemetry registry for realistic ground-truth parameters
+
+def _extract_text(resp) -> str:
+    if hasattr(resp, "content"):
+        c = resp.content
+        if isinstance(c, list):
+            parts = []
+            for p in c:
+                if isinstance(p, dict) and "text" in p:
+                    parts.append(p["text"])
+                elif hasattr(p, "text"):
+                    parts.append(p.text)
+                else:
+                    parts.append(str(p))
+            return "".join(parts).strip()
+        return str(c).strip()
+    return str(resp).strip()
+
 FLEET_PROFILES: Dict[str, Dict[str, Any]] = {
     "EX-04": {
         "model": "XCMG XE4000 Mining Shovel",
@@ -215,7 +234,7 @@ def diagnose_dtc_node(state: AgentOperationalState) -> AgentOperationalState:
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
             llm = ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash", 
+                model="gemini-3.8-flash", 
                 google_api_key=api_key,
                 temperature=0.1
             )
@@ -240,13 +259,15 @@ Respond strictly in valid JSON format with keys:
 "severity": string ("CRITICAL" | "HIGH" | "NOMINAL")
 """
             resp = llm.invoke(prompt)
-            clean_text = resp.content.strip()
-            if clean_text.startswith("```json"):
-                clean_text = clean_text.replace("```json", "", 1).rsplit("```", 1)[0].strip()
-            elif clean_text.startswith("```"):
-                clean_text = clean_text.replace("```", "", 1).rsplit("```", 1)[0].strip()
+            clean_text = _extract_text(resp)
+            if "```json" in clean_text:
+                clean_text = clean_text.split("```json", 1)[1].split("```", 1)[0].strip()
+            elif "```" in clean_text:
+                clean_text = clean_text.split("```", 1)[1].split("```", 1)[0].strip()
+            elif "{" in clean_text and "}" in clean_text:
+                clean_text = clean_text[clean_text.find("{"):clean_text.rfind("}")+1].strip()
             findings = json.loads(clean_text)
-            findings["source"] = "Gemini 2.0 Flash Diagnostic Agent"
+            findings["source"] = "Gemini 3.8 Flash Diagnostic Agent"
         except Exception:
                 pass
                 
@@ -437,7 +458,7 @@ def chat_reasoning_engine(query: str, state: AgentOperationalState) -> str:
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
             llm = ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash", 
+                model="gemini-3.8-flash", 
                 google_api_key=api_key,
                 temperature=0.3
             )
@@ -458,7 +479,7 @@ User Question: "{query}"
 Answer concisely and authoritatively from the perspective of an advanced mining engineer. Focus on safety, machine availability, and practical maintenance actions.
 """
             resp = llm.invoke(prompt)
-            return resp.content.strip()
+            return _extract_text(resp)
         except Exception:
                 pass
                 

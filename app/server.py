@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 """
 server.py — FastAPI Microservice for TerraCortex LangGraph Operations Engine
 Exposes REST endpoints on port 8000 for Next.js and Fleet Web Portals.
@@ -40,7 +42,7 @@ def healthcheck():
     return {
         "status": "healthy",
         "service": "TerraCortex LangGraph Multi-Agent Engine",
-        "llm_engine": "Gemini 2.0 Flash (Online)" if gemini_key else "Deterministic Mining Hydraulic Engine (Offline Fallback)",
+        "llm_engine": "Gemini 3.8 Flash (Online)" if gemini_key else "Deterministic Mining Hydraulic Engine (Offline Fallback)",
         "active_graph_nodes": [
             "ingest_telemetry",
             "diagnose_dtc",

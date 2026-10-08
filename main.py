@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 """
 main.py — Entrypoint for TerraCortex LangGraph Operations Engine Service
 Starts Uvicorn server on port 8000.

@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 """
 test_agent_local.py — Local Test Runner for TerraCortex LangGraph Agent
 Executes StateGraph pipeline and tests conversational reasoning in local terminal.
