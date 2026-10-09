@@ -17,6 +17,7 @@ class AgentOperationalState(TypedDict, total=False):
     
     # Node 3: SAP MM Parts Inventory Output
     spare_parts: List[Dict[str, Any]]
+    inventory_resolution: Dict[str, Any]
     
     # Node 4: Synthesis & Work Order Output
     work_order_draft: Dict[str, Any]

@@ -111,8 +111,8 @@ FLEET_PROFILES: Dict[str, Dict[str, Any]] = {
         "dtc_code": "SPN 520190 / FMI 01 (Bearing Clearance Excessive)",
         "fault_summary": "88 Hz radial vibration on swing gear with elevated centrifugal wear.",
         "assigned_rig": "Mobile Rig Alpha (Heavy Hydraulics)",
-        "part_target": "SAP-LUBE-PURGE-08",
-        "downtime_est": "2.0 Hours Lubrication & Torque Check"
+        "part_target": "SAP-SLEW-PINION-700",
+        "downtime_est": "4.5 Hours Pinion Shaft Replacement"
     },
     "EX-08": {
         "model": "XCMG XE1250 Mining Excavator",
@@ -179,8 +179,8 @@ FLEET_PROFILES: Dict[str, Dict[str, Any]] = {
         "dtc_code": "SPN 520150 / FMI 00 (Pressure Line Excursion)",
         "fault_summary": "Pressure line excursion 33.8 MPa detected under hard bucket stall.",
         "assigned_rig": "Mobile Rig Alpha",
-        "part_target": "SAP-FLT-HYD-440",
-        "downtime_est": "2.0 Hours Line Pressure Recalibration"
+        "part_target": "SAP-PUMP-ROT-700",
+        "downtime_est": "5.0 Hours Pump Rebuild (Awaiting Part)"
     }
 }
 
@@ -295,9 +295,144 @@ Respond strictly in valid JSON format with keys:
 
 PARTS_CACHE = None
 
+EXPANDED_OEM_PARTS = [
+    {
+        "sap_code": "SAP-PARK-902-KIT",
+        "name": "Parker Spool Valve Seal Kit #PS-902",
+        "fitment": "XCMG XE4000 Mining Shovel",
+        "location": "Warehouse Bay 03 (Bin B-04)",
+        "on_hand": 4,
+        "min_required": 2,
+        "unit_cost": "$1,850",
+        "status": "In Stock - Ready",
+        "substitute_sap_code": "SAP-REX-902-EQUIV",
+        "vendor_lead_time": "24h Domestic"
+    },
+    {
+        "sap_code": "SAP-REX-902-EQUIV",
+        "name": "Rexroth Spool Seal Equivalent #RS-902",
+        "fitment": "XCMG XE4000 / XE7000 Control Block",
+        "location": "Warehouse Bay 03 (Bin B-06)",
+        "on_hand": 2,
+        "min_required": 1,
+        "unit_cost": "$1,920",
+        "status": "In Stock - Ready",
+        "substitute_sap_code": "SAP-PARK-902-KIT",
+        "vendor_lead_time": "24h Domestic"
+    },
+    {
+        "sap_code": "SAP-VLV-RELIEF-400",
+        "name": "Main Relief Valve Cartridge 350-Bar",
+        "fitment": "XCMG XE4000 Powerpack Manifold",
+        "location": "Warehouse Bay 01 (Bin A-12)",
+        "on_hand": 2,
+        "min_required": 1,
+        "unit_cost": "$4,120",
+        "status": "In Stock - Ready",
+        "substitute_sap_code": "SAP-VLV-RELIEF-HP",
+        "vendor_lead_time": "48h Express"
+    },
+    {
+        "sap_code": "SAP-VLV-RELIEF-HP",
+        "name": "High-Pressure Relief Valve 380-Bar Cartridge",
+        "fitment": "Universal XCMG Heavy Shovels",
+        "location": "Warehouse Bay 01 (Bin A-14)",
+        "on_hand": 1,
+        "min_required": 1,
+        "unit_cost": "$4,450",
+        "status": "In Stock - Ready",
+        "substitute_sap_code": "SAP-VLV-RELIEF-400",
+        "vendor_lead_time": "48h Express"
+    },
+    {
+        "sap_code": "SAP-PUMP-ROT-700",
+        "name": "Kawasaki K3V180 Cylinder Block & Piston Set",
+        "fitment": "XCMG XE700D Heavy Excavator",
+        "location": "Warehouse Bay 04 (Heavy Rack 02)",
+        "on_hand": 0,
+        "min_required": 1,
+        "unit_cost": "$12,800",
+        "status": "Stock Shortage - Expedited PO Required",
+        "substitute_sap_code": "",
+        "vendor_lead_time": "4-6 Hours Air Freight"
+    },
+    {
+        "sap_code": "SAP-LUBE-PURGE-08",
+        "name": "Slew Bearing Grease Purge Pack #EP-2",
+        "fitment": "XCMG XE7000 / XE4000 Slew Race",
+        "location": "Warehouse Bay 02 (Bin A-09)",
+        "on_hand": 12,
+        "min_required": 4,
+        "unit_cost": "$320",
+        "status": "In Stock - Ready",
+        "substitute_sap_code": "SAP-LUBE-MOBIL-EP2",
+        "vendor_lead_time": "Immediate (Bulk Store)"
+    },
+    {
+        "sap_code": "SAP-SLEW-PINION-700",
+        "name": "Slew Pinion Drive Shaft 14-Tooth Heat-Treated",
+        "fitment": "XCMG XE7000 Swing Reducer",
+        "location": "Warehouse Bay 04 (Heavy Rack 08)",
+        "on_hand": 2,
+        "min_required": 1,
+        "unit_cost": "$8,950",
+        "status": "In Stock - Ready",
+        "substitute_sap_code": "",
+        "vendor_lead_time": "72h Heavy Courier"
+    },
+    {
+        "sap_code": "SAP-PARK-W200-HP",
+        "name": "Parker Boom Wiper & Piston Pack #W-200",
+        "fitment": "XCMG XE2000 Boom Cylinder",
+        "location": "Warehouse Bay 01 (Bin C-14)",
+        "on_hand": 0,
+        "min_required": 2,
+        "unit_cost": "$1,120",
+        "status": "Stock Shortage - Use Substitute",
+        "substitute_sap_code": "SAP-CAT-W200-EQUIV",
+        "vendor_lead_time": "PO In Transit (ETA 8h)"
+    },
+    {
+        "sap_code": "SAP-CAT-W200-EQUIV",
+        "name": "Hallite 755 Heavy Boom Cylinder Packing Set",
+        "fitment": "XCMG XE2000 / Cat 6020B Equivalent",
+        "location": "Warehouse Bay 01 (Bin C-16)",
+        "on_hand": 3,
+        "min_required": 1,
+        "unit_cost": "$1,280",
+        "status": "In Stock - Substitute Ready",
+        "substitute_sap_code": "SAP-PARK-W200-HP",
+        "vendor_lead_time": "Immediate (On Shelf)"
+    },
+    {
+        "sap_code": "SAP-FLT-HYD-440",
+        "name": "High-Pressure Return Filter Element #FLT-440",
+        "fitment": "Universal Mining Fleet XCMG",
+        "location": "Warehouse Bay 02 (Bin B-18)",
+        "on_hand": 18,
+        "min_required": 6,
+        "unit_cost": "$320",
+        "status": "In Stock - Ready",
+        "substitute_sap_code": "",
+        "vendor_lead_time": "Immediate (Consumable)"
+    },
+    {
+        "sap_code": "SAP-RAD-CORE-1250",
+        "name": "Hydraulic Oil Cooler Core Radiator #RAD-1250",
+        "fitment": "XCMG XE1250 Mining Excavator",
+        "location": "Warehouse Yard Staging (Pallet 04)",
+        "on_hand": 2,
+        "min_required": 1,
+        "unit_cost": "$6,200",
+        "status": "In Stock - Ready",
+        "substitute_sap_code": "",
+        "vendor_lead_time": "48h Regional"
+    }
+]
+
 
 def check_sap_inventory_node(state: AgentOperationalState) -> AgentOperationalState:
-    """Node 3: Checks live SAP MM inventory stock in Supabase with smart caching."""
+    """Node 3: Checks live SAP MM inventory with autonomous substitution and stockout reasoning."""
     global PARTS_CACHE
     trace = list(state.get("execution_trace", []))
     trace.append("check_sap_inventory_node")
@@ -309,6 +444,7 @@ def check_sap_inventory_node(state: AgentOperationalState) -> AgentOperationalSt
     parts_list = PARTS_CACHE or []
     
     if not parts_list:
+        parts_dict = {p["sap_code"]: dict(p) for p in EXPANDED_OEM_PARTS}
         try:
             url = f"{SUPABASE_URL}/rest/v1/sap_inventory?select=*"
             ctx = ssl._create_unverified_context()
@@ -321,84 +457,84 @@ def check_sap_inventory_node(state: AgentOperationalState) -> AgentOperationalSt
             )
             with urllib.request.urlopen(req, context=ctx, timeout=2.5) as resp:
                 db_parts = json.loads(resp.read().decode())
-                for p in db_parts:
-                    parts_list.append({
-                        "sap_code": p.get("sap_code"),
-                        "name": p.get("name"),
-                        "fitment": p.get("fitment"),
-                        "location": p.get("location"),
-                        "on_hand": p.get("on_hand", 0),
-                        "min_required": p.get("min_required", 2),
-                        "unit_cost": p.get("unit_cost"),
-                        "status": p.get("status")
-                    })
-                PARTS_CACHE = parts_list
+                for db_p in db_parts:
+                    code = db_p.get("sap_code")
+                    if code in parts_dict:
+                        parts_dict[code]["on_hand"] = db_p.get("on_hand", parts_dict[code]["on_hand"])
+                        parts_dict[code]["status"] = db_p.get("status", parts_dict[code]["status"])
+                        if db_p.get("location"):
+                            parts_dict[code]["location"] = db_p.get("location")
+                        if db_p.get("substitute_sap_code"):
+                            parts_dict[code]["substitute_sap_code"] = db_p.get("substitute_sap_code")
+                    else:
+                        parts_dict[code] = {
+                            "sap_code": code,
+                            "name": db_p.get("name"),
+                            "fitment": db_p.get("fitment"),
+                            "location": db_p.get("location"),
+                            "on_hand": db_p.get("on_hand", 0),
+                            "min_required": db_p.get("min_required", 2),
+                            "unit_cost": db_p.get("unit_cost"),
+                            "status": db_p.get("status"),
+                            "substitute_sap_code": db_p.get("substitute_sap_code", ""),
+                            "vendor_lead_time": "24h Domestic"
+                        }
         except Exception:
-            parts_list = [
-                {
-                    "sap_code": "SAP-PARK-902-KIT",
-                    "name": "Parker Spool Valve Seal Kit #400",
-                    "fitment": "XCMG XE4000 / XE7000 Spool Block",
-                    "location": "Warehouse Bay 03 (Bin B-04)",
-                    "on_hand": 3,
-                    "min_required": 2,
-                    "unit_cost": "$2,450",
-                    "status": "In Stock - Ready"
-                },
-                {
-                    "sap_code": "SAP-VLV-RELIEF-400",
-                    "name": "Main Relief Valve Cartridge 350-bar",
-                    "fitment": "XCMG XE4000 Powerpack Manifold",
-                    "location": "Warehouse Bay 01 (Bin A-12)",
-                    "on_hand": 2,
-                    "min_required": 1,
-                    "unit_cost": "$4,120",
-                    "status": "In Stock - Ready"
-                },
-                {
-                    "sap_code": "SAP-LUBE-PURGE-08",
-                    "name": "Slew Bearing Grease Purge Pack #EP-2",
-                    "fitment": "XCMG XE7000 / XE4000 Slew Race",
-                    "location": "Warehouse Bay 02 (Bin A-09)",
-                    "on_hand": 12,
-                    "min_required": 4,
-                    "unit_cost": "$680",
-                    "status": "In Stock - Ready"
-                },
-                {
-                    "sap_code": "SAP-FLT-HYD-440",
-                    "name": "High-Pressure Return Filter Element #FLT-440",
-                    "fitment": "Universal Mining Fleet XCMG",
-                    "location": "Warehouse Bay 02 (Bin B-18)",
-                    "on_hand": 18,
-                    "min_required": 6,
-                    "unit_cost": "$320",
-                    "status": "In Stock - Ready"
-                },
-                {
-                    "sap_code": "SAP-PARK-W200-HP",
-                    "name": "Parker Boom Wiper Pack #W-200",
-                    "fitment": "XCMG XE2000 Boom Cylinder",
-                    "location": "Warehouse Bay 01 (Bin C-14)",
-                    "on_hand": 0,
-                    "min_required": 2,
-                    "unit_cost": "$1,120",
-                    "status": "Stock Shortage - Reordered"
-                }
-            ]
-            PARTS_CACHE = parts_list
+            pass
+        parts_list = list(parts_dict.values())
+        PARTS_CACHE = parts_list
             
     matched = next((p for p in parts_list if p["sap_code"] == target_sap), parts_list[0])
     
+    # Autonomous Inventory Reasoning: Stockout vs Substitution Protocol
+    is_substituted = False
+    stockout_critical = False
+    allocated_part = matched
+    substitution_note = ""
+    emergency_po = None
+    
+    if matched.get("on_hand", 0) <= 0:
+        sub_code = matched.get("substitute_sap_code")
+        sub_part = next((p for p in parts_list if p["sap_code"] == sub_code and p.get("on_hand", 0) > 0), None) if sub_code else None
+        
+        if sub_part:
+            is_substituted = True
+            allocated_part = sub_part
+            substitution_note = f"Primary part {matched['sap_code']} is out of stock. Autonomous Agent allocated OEM equivalent substitute: {sub_part['name']} ({sub_part['sap_code']}) with {sub_part.get('on_hand')} units in stock."
+        else:
+            stockout_critical = True
+            emergency_po = {
+                "po_id": f"PO-EMG-{unit_id.replace('-', '')}",
+                "requested_part": matched["name"],
+                "sap_code": matched["sap_code"],
+                "vendor_eta": matched.get("vendor_lead_time", "4-6 Hours Express Freight"),
+                "urgency": "AOG / MINE DOWN CRITICAL",
+                "status": "DISPATCHED TO REGIONAL DISTRIBUTOR"
+            }
+    
+    allocated_part = dict(allocated_part)
+    allocated_part["is_substituted"] = is_substituted
+    allocated_part["stockout_critical"] = stockout_critical
+    allocated_part["substitution_note"] = substitution_note
+    allocated_part["emergency_po"] = emergency_po
+
     return {
         **state,
-        "spare_parts": [matched],
+        "spare_parts": [allocated_part],
+        "inventory_resolution": {
+            "primary_part": matched,
+            "allocated_part": allocated_part,
+            "is_substituted": is_substituted,
+            "stockout_critical": stockout_critical,
+            "substitution_note": substitution_note,
+            "emergency_po": emergency_po
+        },
         "execution_trace": trace
     }
 
 
 def synthesize_dispatch_node(state: AgentOperationalState) -> AgentOperationalState:
-    """Node 4: Synthesizes final actionable work order draft and cabin safety directives."""
+    """Node 4: Synthesizes final actionable work order draft, stockout holds, and cabin safety directives."""
     trace = list(state.get("execution_trace", []))
     trace.append("synthesize_dispatch_node")
     
@@ -408,15 +544,39 @@ def synthesize_dispatch_node(state: AgentOperationalState) -> AgentOperationalSt
     parts = state.get("spare_parts", [{}])
     part = parts[0] if parts else {}
     cmsi = state.get("cmsi_score", 90.0)
+    inv_res = state.get("inventory_resolution", {})
+    
+    stockout_critical = inv_res.get("stockout_critical", False) or part.get("stockout_critical", False)
+    is_substituted = inv_res.get("is_substituted", False) or part.get("is_substituted", False)
+    emergency_po = inv_res.get("emergency_po") or part.get("emergency_po")
     
     priority = "CRITICAL" if cmsi >= 90 else "HIGH" if cmsi >= 70 else "MEDIUM"
     
-    if cmsi >= 90:
+    if stockout_critical and emergency_po:
+        directive = f"EMERGENCY MACHINE STANDBY / SHUTDOWN: Critical part {part.get('name')} is OUT OF STOCK. All field mobile rigs held at workshop. IMMEDIATELY CEASE DIGGING & SHUT DOWN HYDRAULIC PUMP to prevent permanent cylinder and pump seizure. Emergency procurement ({emergency_po['po_id']}) initiated with vendor (ETA: {emergency_po['vendor_eta']})."
+        wo_status = "BLOCKED_AWAITING_PARTS"
+        assigned_rig_str = f"{profile.get('assigned_rig', 'Mobile Rig Alpha')} (HELD AT WORKSHOP - STANDBY)"
+        stock_str = f"0 Units on Shelf (OUT OF STOCK - {emergency_po['po_id']} DISPATCHED)"
+    elif is_substituted:
+        directive = f"DERATE DIGGING ENVELOPE: Limit breakout force by 30%. Mobile rig dispatched with OEM Equivalent substitute {part.get('name')}. Maintain safe idle until crew arrives."
+        wo_status = "APPROVED_SUBSTITUTE_ALLOCATED"
+        assigned_rig_str = profile.get("assigned_rig", "Mobile Rig Alpha")
+        stock_str = f"{part.get('on_hand', 1)} Units on Shelf (OEM Substitute Ready)"
+    elif cmsi >= 90:
         directive = f"DERATE DIGGING ENVELOPE IMMEDIATELY: Limit breakout force by 30% and avoid full-stroke cylinder stall against {profile['rock']}. Standby for {profile['assigned_rig']} inspection."
+        wo_status = "READY_FOR_DISPATCH"
+        assigned_rig_str = profile.get("assigned_rig", "Mobile Rig Alpha")
+        stock_str = f"{part.get('on_hand', 1)} Units on Shelf ({part.get('status', 'Available')})"
     elif cmsi >= 70:
         directive = f"CAUTION: Elevated dynamic load observed on {diag.get('component', 'hydraulic circuit')}. Dampen swing acceleration and maintain engine RPM below 1800."
+        wo_status = "READY_FOR_DISPATCH"
+        assigned_rig_str = profile.get("assigned_rig", "Mobile Rig Alpha")
+        stock_str = f"{part.get('on_hand', 1)} Units on Shelf ({part.get('status', 'Available')})"
     else:
         directive = "NOMINAL ENVELOPE: Standard digging operations authorized. Maintain regular shift lubrication cycle."
+        wo_status = "NOMINAL"
+        assigned_rig_str = profile.get("assigned_rig", "Mobile Rig Alpha")
+        stock_str = f"{part.get('on_hand', 1)} Units on Shelf ({part.get('status', 'Available')})"
         
     wo_draft = {
         "id": f"WO-AI-{unit_id.replace('-', '')}",
@@ -427,12 +587,17 @@ def synthesize_dispatch_node(state: AgentOperationalState) -> AgentOperationalSt
         "part_name": part.get("name", "OEM Service Component"),
         "part_sap_code": part.get("sap_code", "SAP-GEN-KIT"),
         "inventory_location": part.get("location", "Warehouse Bay 01"),
-        "part_stock": f"{part.get('on_hand', 1)} Units on Shelf ({part.get('status', 'Available')})",
-        "assigned_rig": profile.get("assigned_rig", "Mobile Rig Alpha"),
+        "part_stock": stock_str,
+        "assigned_rig": assigned_rig_str,
         "estimated_downtime": profile.get("downtime_est", "2.0 Hours"),
         "priority": priority,
         "operator_alert": directive,
-        "confidence": diag.get("confidence", 95)
+        "confidence": diag.get("confidence", 95),
+        "status": wo_status,
+        "stockout_critical": stockout_critical,
+        "is_substituted": is_substituted,
+        "emergency_po": emergency_po,
+        "substitution_note": inv_res.get("substitution_note", "")
     }
     
     return {
@@ -463,7 +628,9 @@ Current Machine Operational Context:
 - SAE DTC Code: {diag.get('dtc')}
 - Remaining Useful Life (RUL): {diag.get('rul_hours')} Operating Hours
 - SAP MM Spare Part: {wo.get('part_name')} [{wo.get('part_sap_code')}] - {wo.get('part_stock')} at {wo.get('inventory_location')}
-- Assigned Rig: {wo.get('assigned_rig')} (Est Downtime: {wo.get('estimated_downtime')})
+- Part Inventory Status: {'CRITICAL STOCKOUT (0 UNITS ON SHELF & NO ON-SITE SUBSTITUTES)' if wo.get('stockout_critical') else 'OEM EQUIVALENT SUBSTITUTION ALLOCATED' if wo.get('is_substituted') else 'IN STOCK & READY'}
+- Emergency PO Protocol: {wo.get('emergency_po', {}).get('po_id') if wo.get('stockout_critical') else 'N/A'} (Vendor ETA: {wo.get('emergency_po', {}).get('vendor_eta') if wo.get('stockout_critical') else 'N/A'})
+- Assigned Rig Status: {wo.get('assigned_rig')} (Est Downtime: {wo.get('estimated_downtime')})
 - In-Cab Directive: {wo.get('operator_alert')}
 
 User Message: "{query}"
@@ -500,11 +667,29 @@ Formatting Guidelines:
                 f"2. Rekomendasi: Kurangi gaya *breakout* sebesar 30% dan kirim {wo.get('assigned_rig')} sebelum pergantian shift."
             )
         elif "spare part" in q_lower or "part" in q_lower or "cadang" in q_lower or "stok" in q_lower or "gudang" in q_lower:
-            return (
-                f"**Pemeriksaan Stok Suku Cadang SAP ({unit_id}):** Suku cadang yang dibutuhkan adalah **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`).\n\n"
-                f"* Status Gudang: **{wo.get('part_stock')}** di {wo.get('inventory_location')}.\n"
-                f"* Tidak ditemukan kendala logistik (*ready for immediate dispatch*)."
-            )
+            if wo.get("stockout_critical"):
+                emg = wo.get("emergency_po") or {}
+                return (
+                    f"**PERINGATAN KRITIS: Suku Cadang Habis ({unit_id})!**\n\n"
+                    f"Komponen utama **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`) saat ini **HABIS (Stok 0)** di gudang dan tidak memiliki part substitusi ready.\n\n"
+                    f"1. **Tindakan Darurat:** Agent telah menerbitkan **{emg.get('po_id', 'PO-EMG')}** ke distributor regional (Estimasi Tiba: **{emg.get('vendor_eta', '4-6 Jam')}**).\n"
+                    f"2. **Status Rig:** Unit servis {wo.get('assigned_rig')} ditahan di pangkalan agar teknisi tidak berangkat sia-sia.\n"
+                    f"3. **Instruksi Mesin:** Operator diwajibkan **STANDBY / SHUTDOWN** hidrolik segera guna mencegah kerusakan permanen."
+                )
+            elif wo.get("is_substituted"):
+                return (
+                    f"**Alokasi Part Substitusi Terverifikasi ({unit_id}):**\n\n"
+                    f"Part utama sedang kosong, namun Agent Copilot telah mengalokasikan suku cadang **Substitusi OEM Kompatibel**: **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`).\n\n"
+                    f"* Lokasi Gudang: {wo.get('inventory_location')}\n"
+                    f"* Status Stok: **{wo.get('part_stock')}**\n"
+                    f"* Rekomendasi: Teknisi dapat langsung melakukan perbaikan dengan part substitusi ini."
+                )
+            else:
+                return (
+                    f"**Pemeriksaan Stok Suku Cadang SAP ({unit_id}):** Suku cadang yang dibutuhkan adalah **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`).\n\n"
+                    f"* Status Gudang: **{wo.get('part_stock')}** di {wo.get('inventory_location')}.\n"
+                    f"* Tidak ditemukan kendala logistik (*ready for immediate dispatch*)."
+                )
         elif "downtime" in q_lower or "jam" in q_lower or "lama" in q_lower or "repair" in q_lower or "perbaikan" in q_lower:
             return (
                 f"**Estimasi Waktu Perbaikan ({unit_id}):** Estimasi *downtime* adalah **{wo.get('estimated_downtime')}** oleh tim {wo.get('assigned_rig')}.\n\n"
@@ -534,11 +719,29 @@ Formatting Guidelines:
                 f"2. Recommendation: Derate breakout envelope by 30% and dispatch {wo.get('assigned_rig')} prior to shift handover."
             )
         elif "part" in q_lower or "stock" in q_lower or "warehouse" in q_lower or "spare" in q_lower:
-            return (
-                f"**SAP MM Parts Verification ({unit_id}):** Required service kit is **{wo.get('part_name')}** (SAP Code: `{wo.get('part_sap_code')}`).\n\n"
-                f"* Stock Status: **{wo.get('part_stock')}** located at {wo.get('inventory_location')}.\n"
-                f"* No supply-chain bottleneck detected (ready for immediate dispatch)."
-            )
+            if wo.get("stockout_critical"):
+                emg = wo.get("emergency_po") or {}
+                return (
+                    f"**CRITICAL STOCKOUT WARNING ({unit_id})!**\n\n"
+                    f"The required part **{wo.get('part_name')}** (SAP: `{wo.get('part_sap_code')}`) is **OUT OF STOCK (0 On Shelf)** with no on-site substitutes.\n\n"
+                    f"1. **Expedited Procurement:** Autonomous Agent issued **{emg.get('po_id', 'PO-EMG')}** via express air freight (ETA: **{emg.get('vendor_eta', '4-6 Hours')}**).\n"
+                    f"2. **Rig Standby:** Mobile rig is held at workshop base to prevent abortive field travel.\n"
+                    f"3. **In-Cab Directive:** Operator instructed to **STANDBY / SHUT DOWN HYDRAULICS** immediately."
+                )
+            elif wo.get("is_substituted"):
+                return (
+                    f"**Verified OEM Equivalent Substitution ({unit_id}):**\n\n"
+                    f"Primary part was depleted. Autonomous Agent successfully allocated OEM substitute: **{wo.get('part_name')}** (SAP: `{wo.get('part_sap_code')}`).\n\n"
+                    f"* Warehouse Location: {wo.get('inventory_location')}\n"
+                    f"* Stock Status: **{wo.get('part_stock')}**\n"
+                    f"* Recommendation: Field rig can safely proceed using this certified substitute."
+                )
+            else:
+                return (
+                    f"**SAP MM Parts Verification ({unit_id}):** Required service kit is **{wo.get('part_name')}** (SAP Code: `{wo.get('part_sap_code')}`).\n\n"
+                    f"* Stock Status: **{wo.get('part_stock')}** located at {wo.get('inventory_location')}.\n"
+                    f"* No supply-chain bottleneck detected (ready for immediate dispatch)."
+                )
         elif "time" in q_lower or "downtime" in q_lower or "duration" in q_lower or "repair" in q_lower or "long" in q_lower:
             return (
                 f"**Maintenance Downtime Estimate ({unit_id}):** Planned service downtime is **{wo.get('estimated_downtime')}** allocated to {wo.get('assigned_rig')}.\n\n"
