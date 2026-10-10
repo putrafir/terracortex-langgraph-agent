@@ -137,16 +137,16 @@ FLEET_PROFILES: Dict[str, Dict[str, Any]] = {
         "rock": "Weathered Sandstone",
         "rock_mpa": 92,
         "hydraulic_pressure": 26.5,
-        "manifold_temp": 88.2,
-        "cavitation_freq": 28.0,
+        "manifold_temp": 96.5,
+        "cavitation_freq": 24.0,
         "vibe_rms": 2.8,
         "cmsi": 91.5,
-        "component": "Hydraulic Oil Cooler Core",
-        "dtc_code": "SPN 520301 / FMI 16 (Cooler Core Differential High)",
-        "fault_summary": "Radiator dust clogging causing delta thermal excursion to 88.2°C.",
-        "assigned_rig": "Mobile Rig Beta (Mechanical)",
-        "part_target": "SAP-FLT-HYD-440",
-        "downtime_est": "1.5 Hours Compressed Air Flush"
+        "component": "Hydraulic Oil Cooler Core & Thermostat",
+        "dtc_code": "SPN 520301 / FMI 16 (Cooler Core Thermal Excursion)",
+        "fault_summary": "Severe radiator overheating excursion 96.5°C exceeding flash limit. Fluid vaporization and seal meltdown risk.",
+        "assigned_rig": "Mobile Rig Beta (Cooling Specialist)",
+        "part_target": "SAP-RAD-CORE-1250",
+        "downtime_est": "3.0 Hours Emergency Radiator Flushing"
     },
     "EX-27": {
         "model": "XCMG XE2000 Mining Excavator",
@@ -202,13 +202,62 @@ FLEET_PROFILES: Dict[str, Dict[str, Any]] = {
 }
 
 
+def get_effective_profile(unit_id: str, telem: dict) -> dict:
+    unit_id = (unit_id or "EX-04").upper()
+    if unit_id == "EX-04" and telem:
+        t_temp = float(telem.get("manifold_temp_c") or 0.0)
+        t_cav = float(telem.get("cavitation_freq_hz") or 0.0)
+        t_press = float(telem.get("hydraulic_pressure_mpa") or 0.0)
+        t_vibe = float(telem.get("vibe_rms_g") or 0.0)
+        t_dtc = str(telem.get("dtc_code") or "")
+
+        if t_temp >= 90.0 or "520301" in t_dtc:
+            return FLEET_PROFILES["EX-08"]
+        elif t_cav >= 150.0 or "520210" in t_dtc:
+            return FLEET_PROFILES["EX-17"]
+        elif "520198" in t_dtc or t_vibe >= 4.0:
+            return FLEET_PROFILES["EX-12"]
+        elif "520144" in t_dtc or (t_press <= 15.0 and t_temp >= 80.0):
+            return FLEET_PROFILES["EX-27"]
+        elif "520150" in t_dtc:
+            return FLEET_PROFILES["EX-31"]
+        elif t_dtc == "0x00" and t_press < 23.0 and t_temp < 70.0:
+            return FLEET_PROFILES["EX-01"]
+        else:
+            return FLEET_PROFILES["EX-04"]
+    return FLEET_PROFILES.get(unit_id, FLEET_PROFILES["EX-04"])
+
 def ingest_telemetry_node(state: AgentOperationalState) -> AgentOperationalState:
     """Node 1: Ingests sensor streams and maps against machine physical context."""
     trace = list(state.get("execution_trace", []))
     trace.append("ingest_telemetry_node")
     
     unit_id = state.get("unit_id", "EX-04").upper()
-    profile = FLEET_PROFILES.get(unit_id, FLEET_PROFILES["EX-04"])
+    telem_in = dict(state.get("telemetry", {}))
+    
+    if unit_id == "EX-04" and telem_in:
+        t_temp = float(telem_in.get("manifold_temp_c") or 0.0)
+        t_cav = float(telem_in.get("cavitation_freq_hz") or 0.0)
+        t_press = float(telem_in.get("hydraulic_pressure_mpa") or 0.0)
+        t_vibe = float(telem_in.get("vibe_rms_g") or 0.0)
+        t_dtc = str(telem_in.get("dtc_code") or "")
+
+        if t_temp >= 90.0 or "520301" in t_dtc:
+            profile = FLEET_PROFILES["EX-08"]
+        elif t_cav >= 150.0 or "520210" in t_dtc:
+            profile = FLEET_PROFILES["EX-17"]
+        elif "520198" in t_dtc or t_vibe >= 4.0:
+            profile = FLEET_PROFILES["EX-12"]
+        elif "520144" in t_dtc or (t_press <= 15.0 and t_temp >= 80.0):
+            profile = FLEET_PROFILES["EX-27"]
+        elif "520150" in t_dtc:
+            profile = FLEET_PROFILES["EX-31"]
+        elif t_dtc == "0x00" and t_press < 23.0 and t_temp < 70.0:
+            profile = FLEET_PROFILES["EX-01"]
+        else:
+            profile = FLEET_PROFILES["EX-04"]
+    else:
+        profile = FLEET_PROFILES.get(unit_id, FLEET_PROFILES["EX-04"])
     
     telem = dict(state.get("telemetry", {}))
     if not telem:
@@ -240,7 +289,31 @@ def diagnose_dtc_node(state: AgentOperationalState) -> AgentOperationalState:
     trace.append("diagnose_dtc_node")
     
     unit_id = state.get("unit_id", "EX-04")
-    profile = FLEET_PROFILES.get(unit_id, FLEET_PROFILES["EX-04"])
+    telem_in = state.get("telemetry", {})
+    
+    if unit_id == "EX-04" and telem_in:
+        t_temp = float(telem_in.get("manifold_temp_c") or 0.0)
+        t_cav = float(telem_in.get("cavitation_freq_hz") or 0.0)
+        t_press = float(telem_in.get("hydraulic_pressure_mpa") or 0.0)
+        t_vibe = float(telem_in.get("vibe_rms_g") or 0.0)
+        t_dtc = str(telem_in.get("dtc_code") or "")
+
+        if t_temp >= 90.0 or "520301" in t_dtc:
+            profile = FLEET_PROFILES["EX-08"]
+        elif t_cav >= 150.0 or "520210" in t_dtc:
+            profile = FLEET_PROFILES["EX-17"]
+        elif "520198" in t_dtc or t_vibe >= 4.0:
+            profile = FLEET_PROFILES["EX-12"]
+        elif "520144" in t_dtc or (t_press <= 15.0 and t_temp >= 80.0):
+            profile = FLEET_PROFILES["EX-27"]
+        elif "520150" in t_dtc:
+            profile = FLEET_PROFILES["EX-31"]
+        elif t_dtc == "0x00" and t_press < 23.0 and t_temp < 70.0:
+            profile = FLEET_PROFILES["EX-01"]
+        else:
+            profile = FLEET_PROFILES["EX-04"]
+    else:
+        profile = FLEET_PROFILES.get(unit_id, FLEET_PROFILES["EX-04"])
     telem = state.get("telemetry", {})
     cmsi = state.get("cmsi_score", profile["cmsi"])
     
@@ -460,7 +533,8 @@ def check_sap_inventory_node(state: AgentOperationalState) -> AgentOperationalSt
     trace.append("check_sap_inventory_node")
     
     unit_id = state.get("unit_id", "EX-04")
-    profile = FLEET_PROFILES.get(unit_id, FLEET_PROFILES["EX-04"])
+    telem = state.get("telemetry", {})
+    profile = get_effective_profile(unit_id, telem)
     target_sap = profile.get("part_target", "SAP-PARK-902-KIT")
     
     parts_list = PARTS_CACHE or []
@@ -561,7 +635,8 @@ def synthesize_dispatch_node(state: AgentOperationalState) -> AgentOperationalSt
     trace.append("synthesize_dispatch_node")
     
     unit_id = state.get("unit_id", "EX-04")
-    profile = FLEET_PROFILES.get(unit_id, FLEET_PROFILES["EX-04"])
+    telem = state.get("telemetry", {})
+    profile = get_effective_profile(unit_id, telem)
     diag = state.get("diagnosis_findings", {})
     parts = state.get("spare_parts", [{}])
     part = parts[0] if parts else {}
