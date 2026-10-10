@@ -46,6 +46,23 @@ def _extract_text(resp) -> str:
     return str(resp).strip()
 
 FLEET_PROFILES: Dict[str, Dict[str, Any]] = {
+    "EX-01": {
+        "model": "XCMG XE4000 Mining Shovel",
+        "site": "Pit 1 North Bench (+15m RL)",
+        "rock": "Soft Overburden",
+        "rock_mpa": 45,
+        "hydraulic_pressure": 18.0,
+        "manifold_temp": 55.0,
+        "cavitation_freq": 20.0,
+        "vibe_rms": 1.1,
+        "cmsi": 38.0,
+        "component": "Hydraulic & Mechanical Circuit (Healthy)",
+        "dtc_code": "0x00 (System Normal)",
+        "fault_summary": "All systems operating strictly within nominal limits. Zero DTC codes detected.",
+        "assigned_rig": "No Mobile Rig Required (Unit Operational)",
+        "part_target": "SAP-GEN-KIT",
+        "downtime_est": "0.0 Hours (Active Production)"
+    },
     "EX-04": {
         "model": "XCMG XE4000 Mining Shovel",
         "site": "Pit 4 Bench 12B Floor (-140m RL)",
@@ -244,6 +261,11 @@ Analyze this excavator telemetry packet:
 - Manifold Temp: {telem.get('manifold_temp_c')} °C
 - Vibration Peak: {telem.get('cavitation_freq_hz')} Hz
 - Machine Stress Index (CMSI): {cmsi} / 100
+
+CRITICAL RELIABILITY RULES:
+1. NOMINAL / HEALTHY: If CMSI < 65 and Pressure is 16.0-22.0 MPa and Vibration Peak < 30 Hz: The machine is completely NOMINAL and HEALTHY. Set severity="NOMINAL", dtc="0x00", component="All Systems Nominal (Healthy)", diagnosis="Machine operating strictly within safe parameters. No fault detected. Zero maintenance required.", rul_hours=4500.
+2. OPERATIONAL HIGH LOAD: If CMSI < 85 and Ground Stratum is Hard Rock/Basalt, but no cavitation spikes (< 50 Hz) and Temp < 78 C: The elevated line pressure (24-30 MPa) is a direct operational resistance against hard rock strata, NOT an internal mechanical fault. Set severity="WARNING", dtc="0x00", component="Ground Penetration High Load", diagnosis="High operational digging resistance against hard rock strata. Component wear is normal. Operator derate 30% recommended, no workshop repair needed.", rul_hours=1500.
+3. CRITICAL FAILURE: If Vibration Peak >= 100 Hz (Cavitation/Harmonic) or Manifold Temp >= 90 C (Overheat) or CMSI >= 90: This is a genuine severe failure requiring immediate work stop or scheduled service. Set severity="CRITICAL".
 
 Respond strictly in valid JSON format with keys:
 "component": string (affected component),
@@ -568,15 +590,15 @@ def synthesize_dispatch_node(state: AgentOperationalState) -> AgentOperationalSt
         assigned_rig_str = profile.get("assigned_rig", "Mobile Rig Alpha")
         stock_str = f"{part.get('on_hand', 1)} Units on Shelf ({part.get('status', 'Available')})"
     elif cmsi >= 70:
-        directive = f"CAUTION: Elevated dynamic load observed on {diag.get('component', 'hydraulic circuit')}. Dampen swing acceleration and maintain engine RPM below 1800."
-        wo_status = "READY_FOR_DISPATCH"
-        assigned_rig_str = profile.get("assigned_rig", "Mobile Rig Alpha")
-        stock_str = f"{part.get('on_hand', 1)} Units on Shelf ({part.get('status', 'Available')})"
+        directive = f"CAUTION: Elevated dynamic load observed on {diag.get('component', 'hydraulic circuit')}. Dampen swing acceleration and maintain engine RPM below 1800. Bukan kerusakan hidrolik. TIDAK PERLU PANGGIL MONTIR."
+        wo_status = "OPERATIONAL_ADVISORY"
+        assigned_rig_str = "No Rig Required (Operational Advisory)"
+        stock_str = "All Parts Nominal"
     else:
-        directive = "NOMINAL ENVELOPE: Standard digging operations authorized. Maintain regular shift lubrication cycle."
+        directive = "OPTIMAL CYCLE: Machine Operating Within Safe Limits. TIDAK PERLU SERVIS ATAU STOP KERJA. Lanjutkan operasi kerja normal."
         wo_status = "NOMINAL"
-        assigned_rig_str = profile.get("assigned_rig", "Mobile Rig Alpha")
-        stock_str = f"{part.get('on_hand', 1)} Units on Shelf ({part.get('status', 'Available')})"
+        assigned_rig_str = "No Mobile Rig Required (Unit Operational)"
+        stock_str = "All Systems Ready"
         
     wo_draft = {
         "id": f"WO-AI-{unit_id.replace('-', '')}",
