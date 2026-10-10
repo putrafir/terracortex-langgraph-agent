@@ -35,6 +35,7 @@ class DiagnoseRequest(BaseModel):
 class ChatRequest(BaseModel):
     unit_id: str = "EX-04"
     query: str
+    context: Optional[Dict[str, Any]] = None
 
 @app.get("/health")
 def healthcheck():
@@ -71,7 +72,7 @@ def diagnose_excavator(req: DiagnoseRequest):
 @app.post("/api/agent/chat")
 def chat_copilot(req: ChatRequest):
     try:
-        reply = ask_copilot_agent(unit_id=req.unit_id, query=req.query)
+        reply = ask_copilot_agent(unit_id=req.unit_id, query=req.query, context=req.context)
         return {
             "success": True,
             "unit_id": req.unit_id,

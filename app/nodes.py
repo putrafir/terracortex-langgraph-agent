@@ -63,6 +63,24 @@ FLEET_PROFILES: Dict[str, Dict[str, Any]] = {
         "part_target": "SAP-GEN-KIT",
         "downtime_est": "0.0 Hours (Active Production)"
     },
+    "EX-04-SCN2": {
+        "model": "XCMG XE4000 Mining Shovel",
+        "site": "Pit 4 Bench 12B Floor (-140m RL)",
+        "rock": "Hard Basalt Strata",
+        "rock_mpa": 184,
+        "hydraulic_pressure": 28.5,
+        "manifold_temp": 68.0,
+        "cavitation_freq": 35.0,
+        "vibe_rms": 1.2,
+        "cmsi": 72.0,
+        "component": "Ground Penetration Load (Hard Basalt Strata)",
+        "dtc_code": "0x00 (Operational High Workload)",
+        "fault_summary": "Elevated pressure is a direct mechanical load reaction against hard basalt strata (184 MPa compressive strength), BUKAN KERUSAKAN POMPA ATAU KATUP. CMSI 72 adalah respon beban kerja wajar.",
+        "assigned_rig": "No Rig Required (Hanya Derate Operasional Operator)",
+        "part_target": "SAP-GEN-KIT",
+        "downtime_est": "0.0 Hours (Unit Tetap Bekerja di Pit)",
+        "no_service_needed": True
+    },
     "EX-04": {
         "model": "XCMG XE4000 Mining Shovel",
         "site": "Pit 4 Bench 12B Floor (-140m RL)",
@@ -223,6 +241,8 @@ def get_effective_profile(unit_id: str, telem: dict) -> dict:
             return FLEET_PROFILES["EX-31"]
         elif t_dtc == "0x00" and t_press < 23.0 and t_temp < 70.0:
             return FLEET_PROFILES["EX-01"]
+        elif (t_dtc == "0x00" or not t_dtc or "workload" in t_dtc.lower()) and t_cav < 60.0 and t_temp < 80.0:
+            return FLEET_PROFILES.get("EX-04-SCN2", FLEET_PROFILES["EX-04"])
         else:
             return FLEET_PROFILES["EX-04"]
     return FLEET_PROFILES.get(unit_id, FLEET_PROFILES["EX-04"])
@@ -254,6 +274,8 @@ def ingest_telemetry_node(state: AgentOperationalState) -> AgentOperationalState
             profile = FLEET_PROFILES["EX-31"]
         elif t_dtc == "0x00" and t_press < 23.0 and t_temp < 70.0:
             profile = FLEET_PROFILES["EX-01"]
+        elif (t_dtc == "0x00" or not t_dtc or "workload" in t_dtc.lower()) and t_cav < 60.0 and t_temp < 80.0:
+            profile = FLEET_PROFILES.get("EX-04-SCN2", FLEET_PROFILES["EX-04"])
         else:
             profile = FLEET_PROFILES["EX-04"]
     else:
@@ -310,6 +332,8 @@ def diagnose_dtc_node(state: AgentOperationalState) -> AgentOperationalState:
             profile = FLEET_PROFILES["EX-31"]
         elif t_dtc == "0x00" and t_press < 23.0 and t_temp < 70.0:
             profile = FLEET_PROFILES["EX-01"]
+        elif (t_dtc == "0x00" or not t_dtc or "workload" in t_dtc.lower()) and t_cav < 60.0 and t_temp < 80.0:
+            profile = FLEET_PROFILES.get("EX-04-SCN2", FLEET_PROFILES["EX-04"])
         else:
             profile = FLEET_PROFILES["EX-04"]
     else:
@@ -362,7 +386,20 @@ Respond strictly in valid JSON format with keys:
         except Exception:
                 pass
                 
-    if not findings:
+    if profile.get("no_service_needed"):
+        findings = {
+            "component": profile["component"],
+            "diagnosis": profile["fault_summary"],
+            "confidence": 98,
+            "dtc": profile["dtc_code"],
+            "freq": f"{telem.get('cavitation_freq_hz', profile['cavitation_freq'])} Hz Rock Interaction",
+            "rul_hours": 1200 if unit_id == "EX-04" else 4500,
+            "severity": "WARNING" if unit_id == "EX-04" else "NOMINAL",
+            "no_service_needed": True,
+            "shift_window": "Tetap Bekerja (Tanpa Interupsi Jadwal Bengkel)" if unit_id == "EX-04" else "Sesuai Kalender Rutin (PM 250 / 500 Jam)",
+            "source": "Mining Hydraulic Knowledge Engine (Domain Operational State)"
+        }
+    elif not findings:
         rul = (
             max(12, int(48 - (cmsi - 90) * 5)) if cmsi >= 90
             else int(180 + (85 - cmsi) * 15) if cmsi >= 70
@@ -737,34 +774,65 @@ def chat_reasoning_engine(query: str, state: AgentOperationalState) -> str:
     telem = state.get("telemetry", {})
     cmsi = state.get("cmsi_score", 90.0)
     
+    is_no_service = bool(
+        diag.get("no_service_needed") or
+        wo.get("no_service_needed") or
+        state.get("no_service_needed") or
+        "no rig" in str(wo.get("assigned_rig", "")).lower() or
+        "bukan kerusakan" in str(diag.get("diagnosis", "")).lower() or
+        "bukan kerusakan" in str(wo.get("diagnosis", "")).lower() or
+        (str(diag.get("dtc", "")).startswith("0x00") and cmsi < 85)
+    )
+    
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if api_key:
         try:
             from google import genai
             client = genai.Client(api_key=api_key)
+            
+            if is_no_service:
+                scenario_instruction = f"""CRITICAL SCENARIO RULE - HEALTHY MACHINE / HIGH STRATA DIGGING LOAD (NOT A BREAKDOWN):
+- The machine is fully operational and has NO mechanical breakdown or component failure (DTC: {diag.get('dtc', '0x00')}).
+- Remaining Useful Life (RUL): {diag.get('rul_hours', 1200)} Operating Hours (Normal operational lifespan).
+- Machine Stress Index (CMSI {cmsi}/100) is solely due to cutting into hard basalt rock strata (184 MPa compressive strength), NOT a hydraulic or mechanical defect.
+- Shift Window: TETAP BEKERJA (Tanpa Interupsi Jadwal Bengkel). The unit MUST CONTINUE WORKING in the pit. Do NOT tell the operator to stop mining!
+- Maintenance / Mobile Rig: NO Mobile Rig is required. NO work order or mechanic dispatch needed.
+- In-Cab Directive: Derate digging breakout force by 30% or coordinate with drill & blast team to fracture hard rock.
+- IF THE USER ASKS 'masih bisa bekerja berapa jam lagi?' or asks about remaining operating hours / RUL:
+  You MUST answer clearly that the machine has a normal remaining useful life (RUL) of > {diag.get('rul_hours', 1200)} Operating Hours, is NOT damaged, and CAN CONTINUE WORKING in the pit without stopping! Explain that CMSI {cmsi} is normal rock resistance, not a failure.
+"""
+            else:
+                scenario_instruction = """CRITICAL SCENARIO RULE - GENUINE COMPONENT FAILURE:
+- Unit has active component failure requiring service or shutdown. Provide authoritative technical explanation.
+"""
+
             prompt = f"""You are the TerraCortex Mining Copilot AI, an advanced OEM-certified reliability intelligence assistant for Heavy Mining Excavators (Fleet Unit {unit_id}).
 Current Machine Operational Context:
 - Machine Unit: {unit_id} ({wo.get('model', 'Mining Shovel')})
 - Machine Stress Index (CMSI): {cmsi} / 100
 - Technical Diagnosis: {diag.get('diagnosis')}
 - SAE DTC Code: {diag.get('dtc')}
-- Remaining Useful Life (RUL): {diag.get('rul_hours')} Operating Hours
+- Remaining Useful Life (RUL): {diag.get('rul_hours', 1200 if is_no_service else 28)} Operating Hours
+- Operational Status: {'HEALTHY / HIGH STRATA DIGGING LOAD (NO MECHANICAL BREAKDOWN)' if is_no_service else 'ACTIVE COMPONENT ANOMALY'}
+- Shift Window: {wo.get('shift_window', 'Tetap Bekerja' if is_no_service else 'Immediate Work Stop Required')}
 - SAP MM Spare Part: {wo.get('part_name')} [{wo.get('part_sap_code')}] - {wo.get('part_stock')} at {wo.get('inventory_location')}
-- Part Inventory Status: {'CRITICAL STOCKOUT (0 UNITS ON SHELF & NO ON-SITE SUBSTITUTES)' if wo.get('stockout_critical') else 'OEM EQUIVALENT SUBSTITUTION ALLOCATED' if wo.get('is_substituted') else 'IN STOCK & READY'}
+- Part Inventory Status: {'NO PARTS NEEDED (BUKAN KERUSAKAN)' if is_no_service else ('CRITICAL STOCKOUT (0 UNITS ON SHELF & NO ON-SITE SUBSTITUTES)' if wo.get('stockout_critical') else 'OEM EQUIVALENT SUBSTITUTION ALLOCATED' if wo.get('is_substituted') else 'IN STOCK & READY')}
 - Emergency PO Protocol: {wo.get('emergency_po', {}).get('po_id') if wo.get('stockout_critical') else 'N/A'} (Vendor ETA: {wo.get('emergency_po', {}).get('vendor_eta') if wo.get('stockout_critical') else 'N/A'})
 - Assigned Rig Status: {wo.get('assigned_rig')} (Est Downtime: {wo.get('estimated_downtime')})
 - In-Cab Directive: {wo.get('operator_alert')}
+
+{scenario_instruction}
 
 User Message: "{query}"
 
 CRITICAL MANDATORY LANGUAGE RULE:
 - You MUST detect and strictly mirror the language used in the User Message:
-  * If the user message is written in ENGLISH (e.g. "Hello", "What is the operational risk?", "How long will the repair take?", "Are parts in stock?"), YOU MUST RESPOND 100% IN ENGLISH.
-  * If the user message is written in INDONESIAN (e.g. "Halo", "Apa risikonya?", "Berapa lama perbaikannya?", "Apakah suku cadang ready?"), YOU MUST RESPOND 100% IN INDONESIAN.
+  * If the user message is written in ENGLISH (e.g. 'Hello', 'What is the operational risk?', 'How long will the repair take?', 'Are parts in stock?'), YOU MUST RESPOND 100% IN ENGLISH.
+  * If the user message is written in INDONESIAN (e.g. 'Halo', 'Apa risikonya?', 'Berapa lama perbaikannya?', 'Apakah suku cadang ready?'), YOU MUST RESPOND 100% IN INDONESIAN.
   * Do NOT answer in Indonesian if the user asked in English. Do NOT answer in English if the user asked in Indonesian.
 
 Formatting Guidelines:
-1. GREETINGS: If user only greets (e.g. "Hello" / "Halo"), greet back warmly in the user's language, state unit {unit_id} active alert ({cmsi} CMSI), and offer help.
+1. GREETINGS: If user only greets (e.g. 'Hello' / 'Halo'), greet back warmly in the user's language, state unit {unit_id} active status ({cmsi} CMSI), and offer help.
 2. TECHNICAL: Answer authoritatively, concisely, and practically from an expert OEM Mining Reliability Engineer perspective.
 3. MARKDOWN: Always format with clean Markdown (bold **terms**, linebreaks between paragraphs, and numbered points 1. 2. 3. on separate lines).
 """
@@ -778,108 +846,160 @@ Formatting Guidelines:
             pass
             
     q_lower = query.lower()
-    is_id = any(w in q_lower for w in ["halo", "hai", "apa", "berapa", "kenapa", "mengapa", "bagaimana", "apakah", "ada", "bisa", "lama", "rusak", "bahaya", "suku", "cadang", "gudang", "stok", "jam", "mekanik", "risiko"])
+    is_id = any(w in q_lower for w in ["halo", "hai", "apa", "berapa", "kenapa", "mengapa", "bagaimana", "apakah", "ada", "bisa", "lama", "rusak", "bahaya", "suku", "cadang", "gudang", "stok", "jam", "mekanik", "risiko", "sisa", "umur"])
     
     if is_id:
-        if "risk" in q_lower or "berbahaya" in q_lower or "bahaya" in q_lower or "failure" in q_lower or "risiko" in q_lower:
-            return (
-                f"**Risiko Operasional untuk {unit_id}:** Operasi terus-menerus di bawah beban tinggi pada strata {telem.get('rock_stratum', 'Hard Basalt')} "
-                f"akan mempercepat keausan mikro (*micro-pitting*) pada {diag.get('component', 'hydraulic spool valve')}.\n\n"
-                f"1. Sisa Umur Komponen (RUL): **{diag.get('rul_hours', 28)} jam operasional**.\n"
-                f"2. Rekomendasi: Kurangi gaya *breakout* sebesar 30% dan kirim {wo.get('assigned_rig')} sebelum pergantian shift."
-            )
-        elif "spare part" in q_lower or "part" in q_lower or "cadang" in q_lower or "stok" in q_lower or "gudang" in q_lower:
+        if is_no_service:
+            if any(w in q_lower for w in ["jam", "rul", "lama", "waktu", "bekerja", "sisa", "umur"]):
+                return f"""**Estimasi Sisa Umur Operasional ({unit_id}):**
+
+Unit **{unit_id}** memiliki sisa umur pakai komponen (RUL) normal lebih dari **{diag.get('rul_hours', 1200)} Jam Operasional** dan **TIDAK MENGALAMI KERUSAKAN MEKANIKAL**.
+
+1. **Status Operasi:** Unit aman dan diizinkan **TETAP BEKERJA** di pit penambangan tanpa interupsi jadwal bengkel.
+2. **Penyebab CMSI ({cmsi}/100):** Kenaikan CMSI merupakan respon beban mekanikal wajar saat memotong strata batuan basalt keras (184 MPa), bukan kebocoran pompa atau katup (DTC `{diag.get('dtc', '0x00')}`).
+3. **Rekomendasi:** Operator cukup melakukan derating gaya *breakout* sebesar 30% atau berkoordinasi dengan tim drill & blast untuk pelunakan batuan."""
+            elif any(w in q_lower for w in ["risk", "berbahaya", "bahaya", "failure", "risiko", "rusak"]):
+                return f"""**Penilaian Kondisi Operasional ({unit_id}):**
+
+Unit **{unit_id}** dalam kondisi aman dan **TIDAK ADA RISIKO KERUSAKAN KRITIS**.
+
+Tingginya indikator CMSI ({cmsi}/100) adalah respon wajar penetrasi batuan basalt keras (184 MPa), bukan anomali hidrolik. Cukup hindari *full-stroke stall* berulang untuk menjaga keausan wajar."""
+            elif any(w in q_lower for w in ["spare part", "part", "cadang", "stok", "gudang"]):
+                return f"""**Status Suku Cadang ({unit_id}):**
+
+**Tidak diperlukan penggantian suku cadang.** Semua komponen hidrolik dan mekanikal beroperasi normal (DTC `{diag.get('dtc', '0x00')}`). Unit tetap melanjutkan pekerjaan di pit."""
+            elif any(w in q_lower for w in ["hai", "halo"]):
+                return f"""Halo! Saya **TerraCortex Mining Copilot**.
+
+Unit **{unit_id}** saat ini aktif menggali strata batuan basalt keras dengan CMSI **{cmsi}/100** (kondisi normal operasional, bukan kerusakan).
+
+Ada yang bisa saya bantu terkait parameter operasional atau rekomendasi penambangan?"""
+            else:
+                return f"""**Ringkasan Status Operasional {unit_id}:** {diag.get('diagnosis')}
+
+* Status: **TETAP BEKERJA** (RUL > {diag.get('rul_hours', 1200)} Jam Operasional)
+* Kode SAE DTC: `{diag.get('dtc', '0x00')}` (Bukan Kerusakan)
+* Arahan Kabin: {wo.get('operator_alert')}"""
+
+        if any(w in q_lower for w in ["risk", "berbahaya", "bahaya", "failure", "risiko"]):
+            return f"""**Risiko Operasional untuk {unit_id}:** Operasi terus-menerus di bawah beban tinggi pada strata {telem.get('rock_stratum', 'Hard Basalt')} akan mempercepat keausan mikro (*micro-pitting*) pada {diag.get('component', 'hydraulic spool valve')}.
+
+1. Sisa Umur Komponen (RUL): **{diag.get('rul_hours', 28)} jam operasional**.
+2. Rekomendasi: Kurangi gaya *breakout* sebesar 30% dan kirim {wo.get('assigned_rig')} sebelum pergantian shift."""
+        elif any(w in q_lower for w in ["spare part", "part", "cadang", "stok", "gudang"]):
             if wo.get("stockout_critical"):
                 emg = wo.get("emergency_po") or {}
-                return (
-                    f"**PERINGATAN KRITIS: Suku Cadang Habis ({unit_id})!**\n\n"
-                    f"Komponen utama **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`) saat ini **HABIS (Stok 0)** di gudang dan tidak memiliki part substitusi ready.\n\n"
-                    f"1. **Tindakan Darurat:** Agent telah menerbitkan **{emg.get('po_id', 'PO-EMG')}** ke distributor regional (Estimasi Tiba: **{emg.get('vendor_eta', '4-6 Jam')}**).\n"
-                    f"2. **Status Rig:** Unit servis {wo.get('assigned_rig')} ditahan di pangkalan agar teknisi tidak berangkat sia-sia.\n"
-                    f"3. **Instruksi Mesin:** Operator diwajibkan **STANDBY / SHUTDOWN** hidrolik segera guna mencegah kerusakan permanen."
-                )
+                return f"""**PERINGATAN KRITIS: Suku Cadang Habis ({unit_id})!**
+
+Komponen utama **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`) saat ini **HABIS (Stok 0)** di gudang dan tidak memiliki part substitusi ready.
+
+1. **Tindakan Darurat:** Agent telah menerbitkan **{emg.get('po_id', 'PO-EMG')}** ke distributor regional (Estimasi Tiba: **{emg.get('vendor_eta', '4-6 Jam')}**).
+2. **Status Rig:** Unit servis {wo.get('assigned_rig')} ditahan di pangkalan agar teknisi tidak berangkat sia-sia.
+3. **Instruksi Mesin:** Operator diwajibkan **STANDBY / SHUTDOWN** hidrolik segera guna mencegah kerusakan permanen."""
             elif wo.get("is_substituted"):
-                return (
-                    f"**Alokasi Part Substitusi Terverifikasi ({unit_id}):**\n\n"
-                    f"Part utama sedang kosong, namun Agent Copilot telah mengalokasikan suku cadang **Substitusi OEM Kompatibel**: **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`).\n\n"
-                    f"* Lokasi Gudang: {wo.get('inventory_location')}\n"
-                    f"* Status Stok: **{wo.get('part_stock')}**\n"
-                    f"* Rekomendasi: Teknisi dapat langsung melakukan perbaikan dengan part substitusi ini."
-                )
+                return f"""**Alokasi Part Substitusi Terverifikasi ({unit_id}):**
+
+Part utama sedang kosong, namun Agent Copilot telah mengalokasikan suku cadang **Substitusi OEM Kompatibel**: **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`).
+
+* Lokasi Gudang: {wo.get('inventory_location')}
+* Status Stok: **{wo.get('part_stock')}**
+* Rekomendasi: Teknisi dapat langsung melakukan perbaikan dengan part substitusi ini."""
             else:
-                return (
-                    f"**Pemeriksaan Stok Suku Cadang SAP ({unit_id}):** Suku cadang yang dibutuhkan adalah **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`).\n\n"
-                    f"* Status Gudang: **{wo.get('part_stock')}** di {wo.get('inventory_location')}.\n"
-                    f"* Tidak ditemukan kendala logistik (*ready for immediate dispatch*)."
-                )
-        elif "downtime" in q_lower or "jam" in q_lower or "lama" in q_lower or "repair" in q_lower or "perbaikan" in q_lower:
-            return (
-                f"**Estimasi Waktu Perbaikan ({unit_id}):** Estimasi *downtime* adalah **{wo.get('estimated_downtime')}** oleh tim {wo.get('assigned_rig')}.\n\n"
-                f"Melakukan penggantian komponen secara terjadwal sekarang mencegah kerusakan parah pada *powerpack* yang memakan waktu hingga 36 jam."
-            )
-        elif "hai" in q_lower or "halo" in q_lower:
-            return (
-                f"Halo! Saya **TerraCortex Mining Copilot**.\n\n"
-                f"Unit **{unit_id}** saat ini termonitor dalam status **CMSI Alert ({cmsi}/100)** "
-                f"dengan anomali pada {diag.get('component', 'sistem hidrolik')}.\n\n"
-                f"Ada yang bisa saya bantu terkait risiko breakdown, ketersediaan suku cadang SAP, atau jadwal servis lapangan?"
-            )
+                return f"""**Pemeriksaan Stok Suku Cadang SAP ({unit_id}):** Suku cadang yang dibutuhkan adalah **{wo.get('part_name')}** (Kode SAP: `{wo.get('part_sap_code')}`).
+
+* Status Gudang: **{wo.get('part_stock')}** di {wo.get('inventory_location')}.
+* Tidak ditemukan kendala logistik (*ready for immediate dispatch*)."""
+        elif any(w in q_lower for w in ["downtime", "jam", "lama", "repair", "perbaikan"]):
+            return f"""**Estimasi Waktu Perbaikan ({unit_id}):** Estimasi *downtime* adalah **{wo.get('estimated_downtime')}** oleh tim {wo.get('assigned_rig')}.
+
+Melakukan penggantian komponen secara terjadwal sekarang mencegah kerusakan parah pada *powerpack* yang memakan waktu hingga 36 jam."""
+        elif any(w in q_lower for w in ["hai", "halo"]):
+            return f"""Halo! Saya **TerraCortex Mining Copilot**.
+
+Unit **{unit_id}** saat ini termonitor dalam status **CMSI Alert ({cmsi}/100)** dengan anomali pada {diag.get('component', 'sistem hidrolik')}.
+
+Ada yang bisa saya bantu terkait risiko breakdown, ketersediaan suku cadang SAP, atau jadwal servis lapangan?"""
         else:
-            return (
-                f"**Ringkasan Diagnostik {unit_id}:** {diag.get('diagnosis')}\n\n"
-                f"* Kode SAE DTC: `{diag.get('dtc')}`\n"
-                f"* Unit Servis: {wo.get('assigned_rig')} disiapkan dengan suku cadang {wo.get('part_name')}.\n"
-                f"* Arahan Kabin: {wo.get('operator_alert')}"
-            )
+            return f"""**Ringkasan Diagnostik {unit_id}:** {diag.get('diagnosis')}
+
+* Kode SAE DTC: `{diag.get('dtc')}`
+* Unit Servis: {wo.get('assigned_rig')} disiapkan dengan suku cadang {wo.get('part_name')}.
+* Arahan Kabin: {wo.get('operator_alert')}"""
     else:
         # English fallback
-        if "risk" in q_lower or "danger" in q_lower or "fail" in q_lower:
-            return (
-                f"**Operational Risk for {unit_id}:** Continuous high-load digging against {telem.get('rock_stratum', 'Hard Basalt')} "
-                f"will accelerate micro-pitting in the {diag.get('component', 'hydraulic spool valve')}.\n\n"
-                f"1. Estimated RUL: **{diag.get('rul_hours', 28)} operating hours**.\n"
-                f"2. Recommendation: Derate breakout envelope by 30% and dispatch {wo.get('assigned_rig')} prior to shift handover."
-            )
-        elif "part" in q_lower or "stock" in q_lower or "warehouse" in q_lower or "spare" in q_lower:
+        if is_no_service:
+            if any(w in q_lower for w in ["hour", "rul", "time", "work", "remain"]):
+                return f"""**Operating Hours Assessment ({unit_id}):**
+
+Machine unit **{unit_id}** has normal remaining useful life of **> {diag.get('rul_hours', 1200)} Operating Hours** with **NO MECHANICAL DAMAGE**.
+
+1. **Operational Status:** Machine is completely safe and authorized to **CONTINUE WORKING** on the pit face without workshop downtime.
+2. **CMSI Score ({cmsi}/100):** Elevated index is a natural mechanical reaction to hard basalt strata (184 MPa), not a pump or valve defect (DTC `{diag.get('dtc', '0x00')}`).
+3. **Recommendation:** Derate breakout force by 30% or request drill & blast pre-fracturing assistance."""
+            elif any(w in q_lower for w in ["risk", "danger", "fail"]):
+                return f"""**Operational Risk Assessment ({unit_id}):**
+
+Machine unit **{unit_id}** is operating safely with **ZERO RISK OF CATASTROPHIC FAILURE**.
+
+Load resistance against hard basalt strata is within acceptable structural thresholds. Continue production with standard operator precautions."""
+            elif any(w in q_lower for w in ["part", "stock", "warehouse", "spare"]):
+                return f"""**Spare Parts Logistics ({unit_id}):**
+
+**No replacement parts required.** All hydraulic circuits and control valves are healthy (DTC `{diag.get('dtc', '0x00')}`). Machine remains in active production."""
+            elif any(w in q_lower for w in ["hello", "hi", "hey"]):
+                return f"""Hello! I am the **TerraCortex Mining Copilot**.
+
+Unit **{unit_id}** is actively excavating hard basalt strata with CMSI **{cmsi}/100** (normal operational resistance, not a failure).
+
+How can I assist you with machine parameters or operational guidelines?"""
+            else:
+                return f"""**Operational Summary for {unit_id}:** {diag.get('diagnosis')}
+
+* Operational Status: **CONTINUE MINING** (RUL > {diag.get('rul_hours', 1200)} Operating Hours)
+* SAE DTC Code: `{diag.get('dtc', '0x00')}` (Normal High Workload)
+* In-Cab Directive: {wo.get('operator_alert')}"""
+
+        if any(w in q_lower for w in ["risk", "danger", "fail"]):
+            return f"""**Operational Risk for {unit_id}:** Continuous high-load digging against {telem.get('rock_stratum', 'Hard Basalt')} will accelerate micro-pitting in the {diag.get('component', 'hydraulic spool valve')}.
+
+1. Estimated RUL: **{diag.get('rul_hours', 28)} operating hours**.
+2. Recommendation: Derate breakout envelope by 30% and dispatch {wo.get('assigned_rig')} prior to shift handover."""
+        elif any(w in q_lower for w in ["part", "stock", "warehouse", "spare"]):
             if wo.get("stockout_critical"):
                 emg = wo.get("emergency_po") or {}
-                return (
-                    f"**CRITICAL STOCKOUT WARNING ({unit_id})!**\n\n"
-                    f"The required part **{wo.get('part_name')}** (SAP: `{wo.get('part_sap_code')}`) is **OUT OF STOCK (0 On Shelf)** with no on-site substitutes.\n\n"
-                    f"1. **Expedited Procurement:** Autonomous Agent issued **{emg.get('po_id', 'PO-EMG')}** via express air freight (ETA: **{emg.get('vendor_eta', '4-6 Hours')}**).\n"
-                    f"2. **Rig Standby:** Mobile rig is held at workshop base to prevent abortive field travel.\n"
-                    f"3. **In-Cab Directive:** Operator instructed to **STANDBY / SHUT DOWN HYDRAULICS** immediately."
-                )
+                return f"""**CRITICAL STOCKOUT WARNING ({unit_id})!**
+
+The required part **{wo.get('part_name')}** (SAP: `{wo.get('part_sap_code')}`) is **OUT OF STOCK (0 On Shelf)** with no on-site substitutes.
+
+1. **Expedited Procurement:** Autonomous Agent issued **{emg.get('po_id', 'PO-EMG')}** via express air freight (ETA: **{emg.get('vendor_eta', '4-6 Hours')}**).
+2. **Rig Standby:** Mobile rig is held at workshop base to prevent abortive field travel.
+3. **In-Cab Directive:** Operator instructed to **STANDBY / SHUT DOWN HYDRAULICS** immediately."""
             elif wo.get("is_substituted"):
-                return (
-                    f"**Verified OEM Equivalent Substitution ({unit_id}):**\n\n"
-                    f"Primary part was depleted. Autonomous Agent successfully allocated OEM substitute: **{wo.get('part_name')}** (SAP: `{wo.get('part_sap_code')}`).\n\n"
-                    f"* Warehouse Location: {wo.get('inventory_location')}\n"
-                    f"* Stock Status: **{wo.get('part_stock')}**\n"
-                    f"* Recommendation: Field rig can safely proceed using this certified substitute."
-                )
+                return f"""**Verified OEM Equivalent Substitution ({unit_id}):**
+
+Primary part was depleted. Autonomous Agent successfully allocated OEM substitute: **{wo.get('part_name')}** (SAP: `{wo.get('part_sap_code')}`).
+
+* Warehouse Location: {wo.get('inventory_location')}
+* Stock Status: **{wo.get('part_stock')}**
+* Recommendation: Field rig can safely proceed using this certified substitute."""
             else:
-                return (
-                    f"**SAP MM Parts Verification ({unit_id}):** Required service kit is **{wo.get('part_name')}** (SAP Code: `{wo.get('part_sap_code')}`).\n\n"
-                    f"* Stock Status: **{wo.get('part_stock')}** located at {wo.get('inventory_location')}.\n"
-                    f"* No supply-chain bottleneck detected (ready for immediate dispatch)."
-                )
-        elif "time" in q_lower or "downtime" in q_lower or "duration" in q_lower or "repair" in q_lower or "long" in q_lower:
-            return (
-                f"**Maintenance Downtime Estimate ({unit_id}):** Planned service downtime is **{wo.get('estimated_downtime')}** allocated to {wo.get('assigned_rig')}.\n\n"
-                f"Executing this preventative component swap now avoids an unscheduled 36-hour catastrophic powerpack rebuild."
-            )
-        elif "hello" in q_lower or "hi" in q_lower or "hey" in q_lower:
-            return (
-                f"Hello! I am the **TerraCortex Mining Copilot**.\n\n"
-                f"Machine unit **{unit_id}** is currently under **CMSI Alert ({cmsi}/100)** "
-                f"due to an anomaly detected in the {diag.get('component', 'hydraulic system')}.\n\n"
-                f"How can I assist you with failure risk, SAP spare parts inventory, or field rig dispatch?"
-            )
+                return f"""**SAP MM Parts Verification ({unit_id}):** Required service kit is **{wo.get('part_name')}** (SAP Code: `{wo.get('part_sap_code')}`).
+
+* Stock Status: **{wo.get('part_stock')}** located at {wo.get('inventory_location')}.
+* No supply-chain bottleneck detected (ready for immediate dispatch)."""
+        elif any(w in q_lower for w in ["time", "downtime", "duration", "repair", "long"]):
+            return f"""**Maintenance Downtime Estimate ({unit_id}):** Planned service downtime is **{wo.get('estimated_downtime')}** allocated to {wo.get('assigned_rig')}.
+
+Executing this preventative component swap now avoids an unscheduled 36-hour catastrophic powerpack rebuild."""
+        elif any(w in q_lower for w in ["hello", "hi", "hey"]):
+            return f"""Hello! I am the **TerraCortex Mining Copilot**.
+
+Machine unit **{unit_id}** is currently under **CMSI Alert ({cmsi}/100)** due to an anomaly detected in the {diag.get('component', 'hydraulic system')}.
+
+How can I assist you with failure risk, SAP spare parts inventory, or field rig dispatch?"""
         else:
-            return (
-                f"**Diagnostic Summary for {unit_id}:** {diag.get('diagnosis')}\n\n"
-                f"* SAE DTC Code: `{diag.get('dtc')}`\n"
-                f"* Service Crew: {wo.get('assigned_rig')} pre-staged with {wo.get('part_name')}.\n"
-                f"* In-Cab Directive: {wo.get('operator_alert')}"
-            )
+            return f"""**Diagnostic Summary for {unit_id}:** {diag.get('diagnosis')}
+
+* SAE DTC Code: `{diag.get('dtc')}`
+* Service Crew: {wo.get('assigned_rig')} pre-staged with {wo.get('part_name')}.
+* In-Cab Directive: {wo.get('operator_alert')}"""
