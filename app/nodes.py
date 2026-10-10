@@ -330,9 +330,9 @@ Analyze this excavator telemetry packet:
 - Machine: {unit_id} ({profile['model']})
 - Location: {profile['site']}
 - Ground Stratum: {profile['rock']} ({profile['rock_mpa']} MPa compressive strength)
-- Hydraulic Pressure: {telem.get('hydraulic_pressure_mpa')} MPa
-- Manifold Temp: {telem.get('manifold_temp_c')} °C
-- Vibration Peak: {telem.get('cavitation_freq_hz')} Hz
+- Hydraulic Pressure: {telem.get('hydraulic_pressure_mpa') or profile.get('hydraulic_pressure')} MPa
+- Manifold Temp: {telem.get('manifold_temp_c') or profile.get('manifold_temp')} °C
+- Vibration Peak: {telem.get('cavitation_freq_hz') or profile.get('cavitation_freq')} Hz
 - Machine Stress Index (CMSI): {cmsi} / 100
 
 CRITICAL RELIABILITY RULES:
@@ -674,8 +674,33 @@ def synthesize_dispatch_node(state: AgentOperationalState) -> AgentOperationalSt
         wo_status = "NOMINAL"
         assigned_rig_str = "No Mobile Rig Required (Unit Operational)"
         stock_str = "All Systems Ready"
+
+    # Determine dynamic maintenance shift window
+    dtc_check = f"{diag.get('dtc', '')} {profile.get('dtc_code', '')} {diag.get('component', '')} {profile.get('component', '')} {diag.get('diagnosis', '')} {profile.get('fault_summary', '')}".lower()
+    
+    if stockout_critical:
+        shift_win = "Rig Held at Base • Machine Shutdown Required"
+    elif "520301" in dtc_check or "meltdown" in dtc_check or "thermal" in dtc_check or "cooler" in dtc_check or "radiator" in dtc_check:
+        shift_win = "Immediate Emergency Shutdown (Detik Ini Juga)"
+    elif "520210" in dtc_check or "relief" in dtc_check:
+        shift_win = "Pukul 18:00 (Pergantian Shift Malam)"
+    elif "520198" in dtc_check or "slew" in dtc_check or "pinion" in dtc_check:
+        shift_win = "Shift Besok Pukul 06:00 (RUL 18 Jam Safe Tolerance)"
+    elif "520144" in dtc_check or "cylinder" in dtc_check or "bypass" in dtc_check:
+        shift_win = "Pukul 12:00 (Istirahat Siang) atau Akhir Shift 18:00"
+    elif "520150" in dtc_check or ("pump" in dtc_check and not "spool" in dtc_check):
+        shift_win = "Detik Ini Juga (Stop Operasi & Kirim Standby Unit)"
+    elif "520204" in dtc_check or "spool" in dtc_check or "cavitation" in dtc_check:
+        shift_win = "Immediate Work Stop Required (Sekarang Juga)"
+    elif wo_status == "NOMINAL" or cmsi < 50:
+        shift_win = "Sesuai Kalender Rutin (PM 250 / 500 Jam)"
+    elif wo_status == "OPERATIONAL_ADVISORY" or cmsi < 90:
+        shift_win = "Tetap Bekerja (Tanpa Interupsi Jadwal Bengkel)"
+    else:
+        shift_win = "Immediate Work Stop Required"
         
     wo_draft = {
+        "shift_window": shift_win,
         "id": f"WO-AI-{unit_id.replace('-', '')}",
         "unit": unit_id,
         "model": profile["model"],
