@@ -75,10 +75,10 @@ FLEET_PROFILES: Dict[str, Dict[str, Any]] = {
         "cmsi": 72.0,
         "component": "Ground Penetration Load (Hard Basalt Strata)",
         "dtc_code": "0x00 (Operational High Workload)",
-        "fault_summary": "Elevated pressure is a direct mechanical load reaction against hard basalt strata (184 MPa compressive strength), BUKAN KERUSAKAN POMPA ATAU KATUP. CMSI 72 adalah respon beban kerja wajar.",
-        "assigned_rig": "No Rig Required (Hanya Derate Operasional Operator)",
+        "fault_summary": "Elevated pressure is a direct mechanical load reaction against hard basalt strata (184 MPa compressive strength), NOT A HYDRAULIC PUMP OR VALVE DEFECT. CMSI 72 is normal workload resistance.",
+        "assigned_rig": "No Rig Required (Operator Digging Derate Only)",
         "part_target": "SAP-GEN-KIT",
-        "downtime_est": "0.0 Hours (Unit Tetap Bekerja di Pit)",
+        "downtime_est": "0.0 Hours (Active Production on Pit Face)",
         "no_service_needed": True
     },
     "EX-04": {
@@ -396,7 +396,7 @@ Respond strictly in valid JSON format with keys:
             "rul_hours": 1200 if unit_id == "EX-04" else 4500,
             "severity": "WARNING" if unit_id == "EX-04" else "NOMINAL",
             "no_service_needed": True,
-            "shift_window": "Tetap Bekerja (Tanpa Interupsi Jadwal Bengkel)" if unit_id == "EX-04" else "Sesuai Kalender Rutin (PM 250 / 500 Jam)",
+            "shift_window": "Continuous Operation (No Workshop Interruption)" if unit_id == "EX-04" else "Scheduled Routine PM (PM 250 / 500 Hours)",
             "source": "Mining Hydraulic Knowledge Engine (Domain Operational State)"
         }
     elif not findings:
@@ -702,12 +702,12 @@ def synthesize_dispatch_node(state: AgentOperationalState) -> AgentOperationalSt
         assigned_rig_str = profile.get("assigned_rig", "Mobile Rig Alpha")
         stock_str = f"{part.get('on_hand', 1)} Units on Shelf ({part.get('status', 'Available')})"
     elif cmsi >= 70:
-        directive = f"CAUTION: Elevated dynamic load observed on {diag.get('component', 'hydraulic circuit')}. Dampen swing acceleration and maintain engine RPM below 1800. Bukan kerusakan hidrolik. TIDAK PERLU PANGGIL MONTIR."
+        directive = f"CAUTION: Elevated dynamic load observed on {diag.get('component', 'hydraulic circuit')}. Dampen swing acceleration and maintain engine RPM below 1800. Normal digging resistance — NO WORKSHOP MECHANIC REQUIRED."
         wo_status = "OPERATIONAL_ADVISORY"
         assigned_rig_str = "No Rig Required (Operational Advisory)"
         stock_str = "All Parts Nominal"
     else:
-        directive = "OPTIMAL CYCLE: Machine Operating Within Safe Limits. TIDAK PERLU SERVIS ATAU STOP KERJA. Lanjutkan operasi kerja normal."
+        directive = "OPTIMAL CYCLE: Machine Operating Within Safe Limits. NO SERVICE OR DOWNTIME REQUIRED. Continue normal excavation."
         wo_status = "NOMINAL"
         assigned_rig_str = "No Mobile Rig Required (Unit Operational)"
         stock_str = "All Systems Ready"
@@ -718,21 +718,21 @@ def synthesize_dispatch_node(state: AgentOperationalState) -> AgentOperationalSt
     if stockout_critical:
         shift_win = "Rig Held at Base • Machine Shutdown Required"
     elif "520301" in dtc_check or "meltdown" in dtc_check or "thermal" in dtc_check or "cooler" in dtc_check or "radiator" in dtc_check:
-        shift_win = "Immediate Emergency Shutdown (Detik Ini Juga)"
+        shift_win = "Immediate Emergency Shutdown (Execute Now)"
     elif "520210" in dtc_check or "relief" in dtc_check:
-        shift_win = "Pukul 18:00 (Pergantian Shift Malam)"
+        shift_win = "18:00 Shift Handover (Night Shift Window)"
     elif "520198" in dtc_check or "slew" in dtc_check or "pinion" in dtc_check:
-        shift_win = "Shift Besok Pukul 06:00 (RUL 18 Jam Safe Tolerance)"
+        shift_win = "Tomorrow 06:00 Shift (18h RUL Safe Tolerance)"
     elif "520144" in dtc_check or "cylinder" in dtc_check or "bypass" in dtc_check:
-        shift_win = "Pukul 12:00 (Istirahat Siang) atau Akhir Shift 18:00"
+        shift_win = "12:00 Lunch Break or 18:00 Shift End"
     elif "520150" in dtc_check or ("pump" in dtc_check and not "spool" in dtc_check):
-        shift_win = "Detik Ini Juga (Stop Operasi & Kirim Standby Unit)"
+        shift_win = "Immediate Work Stop (Shutdown & Standby Unit Dispatched)"
     elif "520204" in dtc_check or "spool" in dtc_check or "cavitation" in dtc_check:
         shift_win = "Immediate Work Stop Required (Sekarang Juga)"
     elif wo_status == "NOMINAL" or cmsi < 50:
-        shift_win = "Sesuai Kalender Rutin (PM 250 / 500 Jam)"
+        shift_win = "Scheduled Routine PM (PM 250 / 500 Hours)"
     elif wo_status == "OPERATIONAL_ADVISORY" or cmsi < 90:
-        shift_win = "Tetap Bekerja (Tanpa Interupsi Jadwal Bengkel)"
+        shift_win = "Continuous Operation (No Workshop Interruption)"
     else:
         shift_win = "Immediate Work Stop Required"
         
@@ -779,8 +779,8 @@ def chat_reasoning_engine(query: str, state: AgentOperationalState) -> str:
         wo.get("no_service_needed") or
         state.get("no_service_needed") or
         "no rig" in str(wo.get("assigned_rig", "")).lower() or
-        "bukan kerusakan" in str(diag.get("diagnosis", "")).lower() or
-        "bukan kerusakan" in str(wo.get("diagnosis", "")).lower() or
+        ("bukan kerusakan" in str(diag.get("diagnosis", "")).lower() or "not a hydraulic" in str(diag.get("diagnosis", "")).lower()) or
+        ("bukan kerusakan" in str(wo.get("diagnosis", "")).lower() or "not a hydraulic" in str(wo.get("diagnosis", "")).lower()) or
         (str(diag.get("dtc", "")).startswith("0x00") and cmsi < 85)
     )
     
@@ -795,7 +795,7 @@ def chat_reasoning_engine(query: str, state: AgentOperationalState) -> str:
 - The machine is fully operational and has NO mechanical breakdown or component failure (DTC: {diag.get('dtc', '0x00')}).
 - Remaining Useful Life (RUL): {diag.get('rul_hours', 1200)} Operating Hours (Normal operational lifespan).
 - Machine Stress Index (CMSI {cmsi}/100) is solely due to cutting into hard basalt rock strata (184 MPa compressive strength), NOT a hydraulic or mechanical defect.
-- Shift Window: TETAP BEKERJA (Tanpa Interupsi Jadwal Bengkel). The unit MUST CONTINUE WORKING in the pit. Do NOT tell the operator to stop mining!
+- Shift Window: Continuous Operation (No Workshop Interruption). The unit MUST CONTINUE WORKING in the pit. Do NOT tell the operator to stop mining!
 - Maintenance / Mobile Rig: NO Mobile Rig is required. NO work order or mechanic dispatch needed.
 - In-Cab Directive: Derate digging breakout force by 30% or coordinate with drill & blast team to fracture hard rock.
 - IF THE USER ASKS 'masih bisa bekerja berapa jam lagi?' or asks about remaining operating hours / RUL:
@@ -814,9 +814,9 @@ Current Machine Operational Context:
 - SAE DTC Code: {diag.get('dtc')}
 - Remaining Useful Life (RUL): {diag.get('rul_hours', 1200 if is_no_service else 28)} Operating Hours
 - Operational Status: {'HEALTHY / HIGH STRATA DIGGING LOAD (NO MECHANICAL BREAKDOWN)' if is_no_service else 'ACTIVE COMPONENT ANOMALY'}
-- Shift Window: {wo.get('shift_window', 'Tetap Bekerja' if is_no_service else 'Immediate Work Stop Required')}
+- Shift Window: {wo.get('shift_window', 'Continuous Operation (No Workshop Interruption)' if is_no_service else 'Immediate Work Stop Required')}
 - SAP MM Spare Part: {wo.get('part_name')} [{wo.get('part_sap_code')}] - {wo.get('part_stock')} at {wo.get('inventory_location')}
-- Part Inventory Status: {'NO PARTS NEEDED (BUKAN KERUSAKAN)' if is_no_service else ('CRITICAL STOCKOUT (0 UNITS ON SHELF & NO ON-SITE SUBSTITUTES)' if wo.get('stockout_critical') else 'OEM EQUIVALENT SUBSTITUTION ALLOCATED' if wo.get('is_substituted') else 'IN STOCK & READY')}
+- Part Inventory Status: {'NO PARTS NEEDED (ZERO COMPONENT FAULT)' if is_no_service else ('CRITICAL STOCKOUT (0 UNITS ON SHELF & NO ON-SITE SUBSTITUTES)' if wo.get('stockout_critical') else 'OEM EQUIVALENT SUBSTITUTION ALLOCATED' if wo.get('is_substituted') else 'IN STOCK & READY')}
 - Emergency PO Protocol: {wo.get('emergency_po', {}).get('po_id') if wo.get('stockout_critical') else 'N/A'} (Vendor ETA: {wo.get('emergency_po', {}).get('vendor_eta') if wo.get('stockout_critical') else 'N/A'})
 - Assigned Rig Status: {wo.get('assigned_rig')} (Est Downtime: {wo.get('estimated_downtime')})
 - In-Cab Directive: {wo.get('operator_alert')}

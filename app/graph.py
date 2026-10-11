@@ -69,7 +69,7 @@ def ask_copilot_agent(unit_id: str, query: str, state: Optional[AgentOperational
             "rul_hours": context.get("rul_hours") or (1200 if is_no_service else 28),
             "severity": "WARNING" if is_no_service else "CRITICAL",
             "no_service_needed": is_no_service,
-            "shift_window": context.get("shift_window", "Tetap Bekerja (Tanpa Interupsi Jadwal Bengkel)")
+            "shift_window": context.get("shift_window", "Continuous Operation (No Workshop Interruption)")
         }
         wo = {
             "unit": unit_id,
@@ -77,12 +77,12 @@ def ask_copilot_agent(unit_id: str, query: str, state: Optional[AgentOperational
             "diagnosis": context.get("diagnosis", ""),
             "dtc": diag["dtc"],
             "component": diag["component"],
-            "part_name": context.get("part_name", "No Replacement Parts Required (Bukan Kerusakan)" if is_no_service else "OEM Service Kit"),
+            "part_name": context.get("part_name", "No Replacement Parts Required (Zero Component Fault)" if is_no_service else "OEM Service Kit"),
             "part_sap_code": context.get("part_sap_code", "N/A" if is_no_service else "SAP-GEN-KIT"),
             "inventory_location": context.get("inventory_location", "Excavator Active on Pit Face" if is_no_service else "Warehouse Bay 03"),
             "part_stock": context.get("part_stock", "Operational" if is_no_service else "In Stock"),
-            "assigned_rig": context.get("assigned_rig", "No Rig Required (Hanya Derate Operasional Operator)" if is_no_service else "Mobile Rig Alpha"),
-            "estimated_downtime": context.get("estimated_downtime", "0.0 Hours (Unit Tetap Bekerja di Pit)" if is_no_service else "2.5 Hours"),
+            "assigned_rig": context.get("assigned_rig", "No Rig Required (Operator Digging Derate Only)" if is_no_service else "Mobile Rig Alpha"),
+            "estimated_downtime": context.get("estimated_downtime", "0.0 Hours (Active Production on Pit Face)" if is_no_service else "2.5 Hours"),
             "operator_alert": context.get("operator_alert", ""),
             "shift_window": diag["shift_window"],
             "no_service_needed": is_no_service,
